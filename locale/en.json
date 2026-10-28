@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "MoA Native",
+    "description": "Native generation-time Mixture-of-Agents: reference models advise in parallel every turn as advance drafts, the acting model executes with full tooling. Config-as-model recipes, R/F reference modes, subagent gating."
+  }
+}

@@ -1,0 +1,4 @@
+- insert:
+    - id: moa-native
+      name: dsh-moa-native
+      config: {}

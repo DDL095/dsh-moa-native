@@ -1,0 +1,69 @@
+{
+  "name": "dsh-moa-native",
+  "version": "4.3.2",
+  "description": "Native Mixture-of-Agents for DeepSeek Harness — generation-time fusion: reference models advise, the acting model executes. Config-as-model recipes, per-route injection modules, workspace-isolated run traces.",
+  "type": "module",
+  "main": "./host.mjs",
+  "exports": {
+    ".": "./host.mjs",
+    "./client": "./client.mjs",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "host.mjs",
+    "client.mjs",
+    "cordis.patch.yml",
+    "docs/",
+    "scripts/",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "README.zh.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "verify": "node scripts/verify.mjs"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "moa",
+    "mixture-of-agents",
+    "llm",
+    "multi-model",
+    "aggregation"
+  ],
+  "license": "MIT",
+  "author": "DDL095",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DDL095/dsh-moa-native.git"
+  },
+  "bugs": {
+    "url": "https://github.com/DDL095/dsh-moa-native/issues"
+  },
+  "homepage": "https://github.com/DDL095/dsh-moa-native#readme",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-ui-renderer"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-typert-protocol": "*"
+  }
+}

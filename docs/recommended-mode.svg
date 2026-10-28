@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 620" font-family="'Segoe UI','Microsoft YaHei',sans-serif">
+  <title>moa-native 推荐模式速览 — F 镜像 + 多模型空白 ref + 单一 agg + 平行预案纪律</title>
+  <desc>推荐配方一图流: 三路异构 ref 以空白注入平行续写(=你本人的预演草稿), 单一 aggregator 带平行预案纪律核对与超越草稿后亲自执行。</desc>
+
+  <defs>
+    <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#8fa3c8"/>
+    </marker>
+    <style>
+      .box { fill:#1b2432; stroke:#3a4a63; rx:10; }
+      .t  { fill:#e6ecf5; font-size:14px; font-weight:700; }
+      .s  { fill:#9fb0c8; font-size:10.5px; }
+      .w  { fill:#c8d6ea; font-size:11.5px; }
+      .k  { fill:#e8b64c; font-size:11px; font-weight:600; }
+      .v  { fill:#7fd4a8; font-size:11px; }
+      .f  { fill:none; stroke:#8fa3c8; stroke-width:1.8; marker-end:url(#a2); }
+    </style>
+  </defs>
+
+  <text x="30" y="34" class="t">推荐模式速览 — F 镜像 · 多模型空白 ref · 单一 agg · 平行预案纪律</text>
+  <text x="30" y="52" class="s">refs=你本人的提前预演草稿(空白注入=零指令纯续写) · aggregator=唯一执行者 · 会话历史零污染</text>
+
+  <!-- 用户消息 -->
+  <rect x="30" y="80" width="170" height="64" class="box"/>
+  <text x="46" y="106" class="w">用户消息</text>
+  <text x="46" y="124" class="s">(常驻 F 模式会话)</text>
+  <path class="f" d="M200 112 H252"/>
+
+  <!-- F 镜像分发 -->
+  <rect x="254" y="72" width="200" height="86" class="box"/>
+  <text x="270" y="96" class="w">F·全量镜像分发</text>
+  <text x="270" y="114" class="s">三路看到与 agg 完全同构的</text>
+  <text x="270" y="130" class="s">上下文(system+工具面+历史)</text>
+  <text x="270" y="148" class="v">KV 前缀缓存同享, 成本≈一路</text>
+
+  <!-- 三路 refs -->
+  <rect x="30" y="196" width="424" height="128" class="box"/>
+  <text x="46" y="220" class="w">三路异构模型 ref(qwen / glm / minimax…各家 flash 档)</text>
+  <text x="46" y="242" class="k">注入 = __blank__(空白·零指令)</text>
+  <text x="46" y="260" class="w">各路「作为你本人」直接续写当前任务 → 平行草稿</text>
+  <text x="46" y="278" class="s">无 persona 污染、无行为契约——纯模型家族差异</text>
+  <text x="46" y="300" class="v">家族多样性 &gt; 路数: 3-4 路即质量/成本最优区</text>
+  <path class="f" d="M354 158 V196"/>
+  <path class="f" d="M242 324 V372"/>
+
+  <!-- guidance -->
+  <rect x="30" y="374" width="424" height="118" class="box"/>
+  <text x="46" y="398" class="w">guidance 组装(匿名标号+随机置换)</text>
+  <text x="46" y="418" class="s">机制段(v27 预运行框架): 「以下相当于你本人的提前预演…</text>
+  <text x="46" y="434" class="s">你是唯一执行者, 把它们当作你自己的多份草稿来核对与超越」</text>
+  <text x="46" y="456" class="k">纪律段 = agg_forrefsblank🔒(平行预案)</text>
+  <text x="46" y="474" class="s">多数一致方向高权重, 分歧处独立判断; 一切行动由你亲自决定与执行</text>
+  <path class="f" d="M454 433 H506"/>
+
+  <!-- aggregator -->
+  <rect x="508" y="196" width="442" height="296" class="box"/>
+  <text x="524" y="222" class="w">单一 aggregator(你的主模型, 唯一执行者)</text>
+  <text x="524" y="246" class="w">① 读草稿: 多数共识=高置信区, 分歧处=需亲自裁决区</text>
+  <text x="524" y="268" class="w">② 核对: 草稿中的「已执行/结果」一律非事实, 须自行验证</text>
+  <text x="524" y="290" class="w">③ 超越: 采纳最优路径后带完整工具循环亲自执行</text>
+  <text x="524" y="312" class="s">(读文件/跑命令/写代码照常; 草稿只供方向与风险提示)</text>
+  <text x="524" y="340" class="v">产出流原样回会话 → 用户看到的是单一模型的连贯回答</text>
+  <text x="524" y="366" class="s">guidance 为请求级注入, 下一步蒸发, 会话历史零污染</text>
+  <text x="524" y="396" class="k">关键参数</text>
+  <text x="524" y="416" class="s">mode=F · refs=3-4 路异构@__blank__ · aggregator=1 路主模型</text>
+  <text x="524" y="434" class="s">aggInjection=agg_forrefsblank · cadence=user_turn · subagent 门控=passthrough</text>
+  <text x="524" y="462" class="s">对照: 出厂 default 保持 Hermes 对齐(默认注入的评审式 refs);</text>
+  <text x="524" y="478" class="s">本推荐模式=进阶档: 更少指令干扰, 更强家族信号</text>
+
+  <!-- 为什么推荐 -->
+  <rect x="30" y="520" width="920" height="76" class="box"/>
+  <text x="46" y="544" class="k">为什么推荐这个组合</text>
+  <text x="46" y="566" class="s">空白注入=把「多模型想说什么」完全交给模型差异, 消除提示词干扰; F 镜像=零信息差+缓存最优(91-99%); 平行预案纪律与预运行框架天然同构(草稿即预演);</text>
+  <text x="46" y="584" class="s">单 agg 保持回答的单一声音与责任归属; 3-4 路即边际收益拐点, 更多路只添成本与 guidance 膨胀。</text>
+</svg>

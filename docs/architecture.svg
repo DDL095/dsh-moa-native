@@ -1,0 +1,159 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 1100" font-family="'Segoe UI','Microsoft YaHei',sans-serif">
+  <title>moa-native 架构详解 · generation-time fusion pipeline</title>
+  <desc>三段: ①主流水线(触发→事件链→门控→缓存→refs扇出→guidance组装→aggregator执行) ②参数速查(每个参数的作用) ③多模型组合效果</desc>
+
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#8fa3c8"/>
+    </marker>
+    <style>
+      .box { fill:#1b2432; stroke:#3a4a63; rx:10; }
+      .hd { fill:#141b26; stroke:#2c3a52; }
+      .t  { fill:#e6ecf5; font-size:13px; font-weight:600; }
+      .s  { fill:#9fb0c8; font-size:10.5px; }
+      .k  { fill:#e8b64c; font-size:10.5px; font-weight:600; }
+      .v  { fill:#7fd4a8; font-size:10.5px; }
+      .w  { fill:#c8d6ea; font-size:10.5px; }
+      .f  { fill:none; stroke:#8fa3c8; stroke-width:1.6; marker-end:url(#arr); }
+      .fd { fill:none; stroke:#5b8def; stroke-width:1.6; stroke-dasharray:5 4; marker-end:url(#arr); }
+      .ti { fill:#f0f4fa; font-size:16px; font-weight:700; }
+      .st { fill:#8fa3c8; font-size:11px; }
+    </style>
+  </defs>
+
+  <!-- ═══════════ 标题 ═══════════ -->
+  <text x="40" y="38" class="ti">moa-native 架构详解 — generation-time fusion(每轮生成时融合)</text>
+  <text x="40" y="58" class="st">refs(参考路)= 你自己的提前预演草稿 · aggregator(行动路)= 唯一执行者 · 一切在 llm/stream 拦截器内完成, 会话历史零污染</text>
+
+  <!-- ═══════════ ① 触发层 ═══════════ -->
+  <rect x="40" y="86" width="230" height="150" class="box"/>
+  <text x="56" y="110" class="t">① 触发(三形态等价)</text>
+  <text x="56" y="132" class="w">▸ 常驻 default: provider 页选</text>
+  <text x="56" y="148" class="w">  moa-native · default(整会话)</text>
+  <text x="56" y="168" class="w">▸ 常驻配方: 选 moa-native·「配方名」</text>
+  <text x="56" y="184" class="w">  = 阵容+模式+节奏整套预设</text>
+  <text x="56" y="204" class="w">▸ /moaR /moaF 斜杠: 当轮临时</text>
+  <text x="56" y="220" class="w">  覆盖模式(前缀剥除, 模型不可见)</text>
+
+  <!-- ② 事件链 -->
+  <rect x="330" y="86" width="250" height="150" class="box"/>
+  <text x="346" y="110" class="t">② 宿主三事件链</text>
+  <text x="346" y="132" class="w">▸ agent/pre-step: 捕 /moa 前缀</text>
+  <text x="346" y="150" class="w">▸ agent/request: 路由改写为伪路由</text>
+  <text x="346" y="162" class="s">  moa-native/{standard|ref|full|配方名}</text>
+  <text x="346" y="182" class="w">▸ llm/stream: 条件拦截主链路</text>
+  <text x="346" y="194" class="s">  (只认伪路由; 真实路由零开销放行)</text>
+  <text x="346" y="214" class="k">伪 provider 经 registerAdapter 常驻</text>
+  <text x="346" y="228" class="s">  → GUI 模型选择器天然可见可选</text>
+
+  <!-- ③ 门控 -->
+  <rect x="640" y="86" width="270" height="150" class="box"/>
+  <text x="656" y="110" class="t">③ 分流门控(先判, 零成本)</text>
+  <text x="656" y="132" class="w">▸ purpose 辅助调用(compaction/标题)</text>
+  <text x="656" y="146" class="s">  → 直转 agg 真实路由, 不消耗计数</text>
+  <text x="656" y="166" class="w">▸ 主会话: 永远完整 MoA</text>
+  <text x="656" y="184" class="w">▸ subagent 会话(头 origin/depth 判定):</text>
+  <text x="656" y="200" class="v">  passthrough=默认, 直转 agg(零扇出)</text>
+  <text x="656" y="214" class="v">  every_n:N=每第N次放一次(第1次必扇)</text>
+  <text x="656" y="228" class="v">  full=旧形态同权全扇</text>
+
+  <!-- ④ 缓存层 -->
+  <rect x="970" y="86" width="250" height="150" class="box"/>
+  <text x="986" y="110" class="t">④ 扇出缓存(指纹命中)</text>
+  <text x="986" y="132" class="w">▸ 键=turn 指纹+rosterKey</text>
+  <text x="986" y="146" class="s">  (配方+阵容+agg, 防异配方串味)</text>
+  <text x="986" y="166" class="w">▸ 命中→复用 guidance, 工具活动后</text>
+  <text x="986" y="180" class="s">  标 STALE(前缀缓存零伤害)</text>
+  <text x="986" y="200" class="w">▸ 全败负缓存 60s(故障喘息窗)</text>
+  <text x="986" y="220" class="k">TTL 10min · 容量 32 条 LRU</text>
+
+  <!-- ⑤ refs 扇出 -->
+  <rect x="40" y="290" width="470" height="196" class="box"/>
+  <text x="56" y="314" class="t">⑤ refs 并行扇出(N 路, 互不知晓)</text>
+  <text x="56" y="338" class="w">R·裁剪视图: Hermes 式(system 丢/工具结果折叠/4k 预算) — 小窗省钱</text>
+  <text x="56" y="356" class="w">F·全量镜像: 与 agg 完全同构(system+工具定义+完整历史) — 零信息差</text>
+  <text x="56" y="378" class="w">▸ 每路尾注=注入模块: 默认(类Hermes)/空白(纯模型差异)/自建文本</text>
+  <text x="56" y="392" class="s">  (完全替换不叠加, 可见可编辑, 无隐藏 persona)</text>
+  <text x="56" y="412" class="w">▸ includeReasoning: 该路思考原文无截断进 guidance(默认关)</text>
+  <text x="56" y="432" class="w">▸ retry 分类: A类剥 reasoning 块重发 / B类退避≤2次 / 429 不重试</text>
+  <text x="56" y="446" class="s">  fail-loud: 耗尽如实标 ✗, 绝不静默换路替补</text>
+  <text x="56" y="466" class="k">▸ 多路并行 = 家族多样性红利(见③组合效果)</text>
+
+  <!-- ⑥ guidance 组装 -->
+  <rect x="570" y="290" width="370" height="196" class="box"/>
+  <text x="586" y="314" class="t">⑥ guidance 组装(防污染三件套)</text>
+  <text x="586" y="338" class="w">▸ 匿名标号: 块头 [reference·#A·性质], 零模型真名</text>
+  <text x="586" y="352" class="s">  (真名映射只进 trace 账本, 第三方可审计)</text>
+  <text x="586" y="372" class="w">▸ Fisher-Yates 置换显示序(防位置偏差锚定)</text>
+  <text x="586" y="392" class="w">▸ 预运行框架(v27): 「相当于你本人的提前预演,</text>
+  <text x="586" y="406" class="s">  你是唯一执行者…当作你自己的多份草稿来核对与超越」</text>
+  <text x="586" y="426" class="w">▸ agg 纪律段: 通用/零纪律/平行预案三保留字+自建</text>
+  <text x="586" y="446" class="w">▸ 敏感信息行首 [ 转义 — refs 无法伪造块头</text>
+  <text x="586" y="466" class="s">  (结构定界, v21 盲审修订)</text>
+
+  <!-- ⑦ aggregator -->
+  <rect x="1000" y="290" width="400" height="196" class="box"/>
+  <text x="1016" y="314" class="t">⑦ aggregator 执行(唯一行动者)</text>
+  <text x="1016" y="338" class="w">▸ 真实路由 provider/model@effort 直转</text>
+  <text x="1016" y="352" class="s">  (resolveCallConfig 补 provider 方言)</text>
+  <text x="1016" y="372" class="w">▸ guidance = 独立尾随 user message 注入</text>
+  <text x="1016" y="386" class="s">  (#112358 铁律: 绝不 merge 进历史; 下一步蒸发)</text>
+  <text x="1016" y="406" class="w">▸ 带完整工具循环: 读文件/跑命令/写代码照常</text>
+  <text x="1016" y="426" class="w">▸ 输出流原样回会话(KV 前缀缓存 91-99%, F 模式)</text>
+  <text x="1016" y="450" class="k">▸ settle_ms 窗口: 上游打断后宽限落袋已产出的</text>
+  <text x="1016" y="464" class="s">  refs 意见, 不浪费已付成本</text>
+
+  <!-- 流程箭头 -->
+  <path class="f" d="M270 160 H326"/>
+  <path class="f" d="M580 160 H636"/>
+  <path class="f" d="M910 160 H966"/>
+  <path class="f" d="M1095 236 V262 H275 V284"/>
+  <path class="f" d="M510 388 H566"/>
+  <path class="f" d="M940 388 H996"/>
+  <path class="fd" d="M275 486 V574" />
+
+  <!-- ⑧ 轨迹 -->
+  <rect x="40" y="580" width="470" height="120" class="hd"/>
+  <text x="56" y="604" class="t">⑧ 运行轨迹(可观测, 输入永不落盘)</text>
+  <text x="56" y="626" class="w">▸ ring 60 轮(重启回填最近15) → 面板四级下钻:</text>
+  <text x="56" y="642" class="s">  会话(ws 隔离)→轮次→各路卡片→advisory 原文</text>
+  <text x="56" y="662" class="w">▸ 每日 zstd 归档(原子写) · 标号→真名账本</text>
+  <text x="56" y="680" class="w">▸ trace:false 一键全关</text>
+
+  <!-- ═══════════ 参数速查 ═══════════ -->
+  <rect x="560" y="580" width="840" height="470" class="box"/>
+  <text x="576" y="606" class="t">参数速查 — 每个参数控制什么</text>
+  <text x="576" y="632" class="k">mode</text>          <text x="700" y="632" class="w">R 裁剪(省)/F 镜像(质); 缺省按配方, 兜底 F(实测最优)</text>
+  <text x="576" y="652" class="k">refs[]</text>        <text x="700" y="652" class="w">参考路阵容; 元素="prov/model@effort" 或 {model,injection,includeReasoning,kind}</text>
+  <text x="576" y="672" class="k">aggregator</text>    <text x="700" y="672" class="w">行动路(你真正想用的主模型); refs 只是它的预演草稿</text>
+  <text x="576" y="692" class="k">cadence</text>       <text x="700" y="692" class="w">重算频率: user_turn 同轮一次(最省) / per_iteration 每步 / 跳N步折中</text>
+  <text x="576" y="712" class="k">subagent_policy</text><text x="700" y="712" class="w">子会话门控: passthrough 直转 agg(默认) / every_n:N / full; 主会话不受影响</text>
+  <text x="576" y="732" class="k">settle_ms</text>     <text x="700" y="732" class="w">打断后 refs 已产出意见的落袋宽限(默认 2000ms)</text>
+  <text x="576" y="752" class="k">reference_max_tokens</text> <text x="700" y="752" class="w">单路 ref 输出上限; thinking 模型建议留空(防正文被思考挤光)</text>
+  <text x="576" y="772" class="k">ref_overrides</text> <text x="700" y="772" class="w">按 label 逐槽覆盖 effort/max_tokens(如只给重路加预算)</text>
+  <text x="576" y="792" class="k">injections/aggInjections</text> <text x="700" y="792" class="w">自建注入文本模块表(名→文本); 内置 🔒默认/🔒空白不可删</text>
+  <text x="576" y="812" class="k">disabled_models</text><text x="700" y="812" class="w">模型开关: UI 过滤+引用告警(不阻断, 显式决策可见)</text>
+  <text x="576" y="832" class="k">retry</text>         <text x="700" y="832" class="w">{enabled, maxBlind≤5, backoffMs[]}: A类自修复/B类退避/其余不试</text>
+  <text x="576" y="852" class="k">slots</text>         <text x="700" y="852" class="w">槽位表("ref1"→"prov/model@effort"): 换代只改一处, 阵容引用槽位名</text>
+  <text x="576" y="872" class="k">recipes</text>       <text x="700" y="872" class="w">命名配方=全套预设包; 每个配方都是 provider 页一个模型条目</text>
+  <text x="576" y="892" class="k">trace / debug</text> <text x="700" y="892" class="w">轨迹开关 / 详细日志(门控判定/缓存命中/降级全程可观测)</text>
+  <text x="576" y="912" class="k">prices</text>        <text x="700" y="912" class="w">可选 $/Mtok 单价表 → 面板成本估算列</text>
+  <text x="576" y="940" class="t">多模型组合效果(实测经验)</text>
+  <text x="576" y="962" class="w">▸ 3-4 路 flash 档异构家族(qwen+glm+minimax+kimi) + 1 路 agg ≈ 质量增益/成本最优区</text>
+  <text x="576" y="980" class="w">▸ 与 agg 同模型的 ref 边际价值低(≈自己预演自己) — v27 预运行框架下可裁撤省一路</text>
+  <text x="576" y="998" class="w">▸ 数量>5 后边际递减且 guidance 膨胀(每步 agg 全价重付); 家族多样性 > 路数, fail-loud 优于静默替补</text>
+  <text x="576" y="1024" class="w">▸ F 模式 KV 前缀缓存 91-99%: refs 成本≈一次性, agg 每步复用大前缀; R 模式适合小窗模型</text>
+
+  <!-- 图例 -->
+  <rect x="40" y="740" width="470" height="220" class="hd"/>
+  <text x="56" y="764" class="t">阅读图例</text>
+  <text x="56" y="788" class="w">实线箭头 = 单轮数据流(用户消息→回答)</text>
+  <text x="56" y="808" class="w">虚线蓝箭头 = 跨轮机制(缓存复用/轨迹归档)</text>
+  <text x="56" y="832" class="w">黄字 = 关键设计决策; 绿字 = 默认值行为</text>
+  <text x="56" y="856" class="w">与 judgment-time MoA(先产出结论再盲审)互补:</text>
+  <text x="56" y="872" class="s">本插件 = generation-time(先草稿后执行, 每轮增质)</text>
+  <text x="56" y="892" class="w">Hermes /moa = 一次性命令式; 本插件 = 常驻配置即模型</text>
+  <text x="56" y="912" class="s">(选一个模型条目 = 整条流水线归该会话)</text>
+  <text x="56" y="936" class="w">guidance 是请求级注入: 会话 UI 不可见属正常</text>
+  <text x="56" y="950" class="s">(去设置→MoA-Native 控制台→运行轨迹看原文)</text>
+</svg>
