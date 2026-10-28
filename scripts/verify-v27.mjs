@@ -68,6 +68,18 @@ ok(client.includes("[3, 5, 8, 10, 15, 20, 30]"), "下拉七档(含 15/20/30 扩�
 ok(client.includes('value: "full"'), "full 选项本体在位(防扩档重写漏项)");
 ok(!/subagent_policy: "passthrough"/.test(client), "passthrough 序列化为省略(最小 diff)");
 
+/* ── 4.5 Bug A 回归: agg contextWindow 嵌套读取(dsh-llm normalizeModelInfo 返回 context.contextWindow) ── */
+{
+	const readWin = (m) => m && ((m.context && m.context.contextWindow !== void 0) ? m.context.contextWindow : m.contextWindow);
+	ok(readWin({ context: { contextWindow: 1000000 } }) === 1000000, "嵌套形状命中(DSH 真实形态)");
+	ok(readWin({ contextWindow: 1000000 }) === 1000000, "扁平形状兼容");
+	ok(readWin({}) === undefined, "缺值不臆造");
+	ok(readWin({ context: { contextWindow: 0 } }) === 0 && !Number.isFinite(readWin({})) , "非法值语义(0 交上层 isFinite+w>0 拒绝)");
+	const src1 = host.match(/resolveModelInfo\(c\.ok\.provider, c\.ok\.model\);[\s\S]{0,220}/);
+	ok(src1 !== null && src1[0].includes("m.context.contextWindow"), "源①(resolveModelInfo)已读嵌套 context.contextWindow");
+	ok(/ent\.models\.find[\s\S]{0,220}?m && m\.contextWindow/.test(host), "源②(注册表本地 JSON)保持扁平读取(同名陷阱行未误改)");
+}
+
 /* ── 5. 发布管线锚点自检(双形态感知: DEV 源码=锚在位; 发布产物=断言已转换形状) ── */
 const UL_DEF = /\/\* ── W1\.5 用量归流[\s\S]*?const ulRun = \(info, fn\) => \{[\s\S]*?\};\n/;
 const UL_CALL = /await ulRun\(\{ sid: options\.sessionId \|\| null, note: "moa-native\/refs" \}, \(\) => (.+)\);/;

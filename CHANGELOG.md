@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.3.6 (2026-10-28)
+
+Second fix from field reports: the GUI context-occupancy ring now renders on fresh installs.
+
+- **Aggregator contextWindow nested read**: `pseudoAggContextWindow()` read the flat `m.contextWindow` from `ctx.llm.resolveModelInfo()`, but dsh-llm's `normalizeModelInfo()` returns the nested `context.contextWindow` — the live-catalog source never hit, fresh installs (which lack the optional local model-registry file) fell through to `undefined`, and the input-bar context meter stayed hidden on every moa-native session. The read now checks the nested shape first with a flat fallback. The registry source (a local JSON file whose entries are flat by design) is deliberately untouched.
+- Regression replays in verify-v27: nested / flat / missing shapes, plus source-shape assertions guarding the same-name trap line in `registryContextWindow()`.
+
 ## 4.3.5 (2026-10-28)
 
 Critical fix for npm installs + global name unification: the dev package is renamed `dsh-moa-native`, matching the publish name everywhere.

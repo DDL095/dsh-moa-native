@@ -965,7 +965,7 @@ async function pseudoAggContextWindow(ctx, pseudoModel) {
 		if (c.err) return undefined;
 		try {
 			const m = await ctx.llm.resolveModelInfo(c.ok.provider, c.ok.model);
-			const w = m && m.contextWindow;
+			const w = m && ((m.context && m.context.contextWindow !== void 0) ? m.context.contextWindow : m.contextWindow); /* Bug A: dsh-llm normalizeModelInfo 返回嵌套 context.contextWindow, 扁平兜底兼容 */
 			if (Number.isFinite(w) && w > 0) return Math.floor(w);
 		} catch { /* fallthrough 注册表兜底 */ }
 		return registryContextWindow(c.ok.provider, c.ok.model);
