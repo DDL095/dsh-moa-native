@@ -1,5 +1,13 @@
 # Changelog
 
+## 4.3.5 (2026-10-28)
+
+Critical fix for npm installs + global name unification: the dev package is renamed `dsh-moa-native`, matching the publish name everywhere.
+
+- **Client bundle module id fix**: `window.__ModuleLoader__.load({ id })` registers as `dsh-moa-native`, matching the manifest package name (the dsh client-modules contract: the manifest package name identifies the browser module). On 4.3.4 the bundle registered as `moa-native`, so the browser row `dsh-moa-native` found no factory, re-executed the same bundle from its single-resource URL, and died with `duplicate factory registration for "moa-native"` — the web client failed to start on npm installs.
+- **Dev/publish name unification**: the dev package name is now `dsh-moa-native` (was `moa-native`), so local deployments and fresh installs share one identity; the export pass keeps an idempotent normalization + assertion as a guard. Host-internal namespaces (config file `moa-native.config.json`, pseudo-provider label, settings section id, typert namespace) are deliberately unchanged — they are runtime contracts shared with existing local deployments, not the module-id class.
+- **Regression assertions**: bundle id equals package name (runs in both repos); the dev-only export-anchor checks are now form-aware (publish-form tarballs assert the transformed shape instead of the dev anchors).
+
 ## 4.3.4 (2026-10-28)
 
 Follow-up to the first npm release (`dsh-moa-native@4.3.3`): front-page fixes now ship in the published tarball.

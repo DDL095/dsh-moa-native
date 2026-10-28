@@ -2,7 +2,7 @@
  * 数据通道: ctx.remote nativeCfg(host 网关 nativeCfgGw: list/models/efforts/save)
  * 面板: settings.section "moa-native-console" — 保存热生效。 */
 window.__ModuleLoader__.load({
-	id: "moa-native",
+	id: "dsh-moa-native",
 	factory: (require) => {
 		var module = { exports: {} };
 		var exports = module.exports;

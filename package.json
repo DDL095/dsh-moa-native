@@ -1,6 +1,6 @@
 {
   "name": "dsh-moa-native",
-  "version": "4.3.4",
+  "version": "4.3.5",
   "description": "Native Mixture-of-Agents for DeepSeek Harness — generation-time fusion: reference models advise, the acting model executes. Config-as-model recipes, per-route injection modules, workspace-isolated run traces.",
   "type": "module",
   "main": "./host.mjs",

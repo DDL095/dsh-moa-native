@@ -11,6 +11,15 @@ const client = readFileSync(join(root, "client.mjs"), "utf8");
 let fails = 0;
 const ok = (c, m) => { console.log((c ? "PASS" : "FAIL") + " " + m); if (!c) fails++; };
 
+/* ── 0. client bundle 模块 id === 包名(dsh-client-modules 契约: "The manifest package name
+ *    identifies the browser module"; 失配=浏览器回退单资源 URL 重复执行→duplicate factory→前端启动失败,
+ *    npm 4.3.4 实锤。本断言双仓各自成立: DEV(moa-native)/发布仓(dsh-moa-native, 导出管线已改写)。── */
+{
+	const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+	const m = client.match(/__ModuleLoader__\.load\(\{\s*id:\s*"([^"]+)"/);
+	ok(m !== null && m[1] === pkg.name, "client bundle id 等于包名(" + pkg.name + ")");
+}
+
 /* ── 1. subagent_policy 解析逻辑复演(与 host loadConfig 同构) ── */
 const parsePolicy = (j) => {
 	const warnings = [];
@@ -59,12 +68,17 @@ ok(client.includes("[3, 5, 8, 10, 15, 20, 30]"), "下拉七档(含 15/20/30 扩�
 ok(client.includes('value: "full"'), "full 选项本体在位(防扩档重写漏项)");
 ok(!/subagent_policy: "passthrough"/.test(client), "passthrough 序列化为省略(最小 diff)");
 
-/* ── 5. 发布管线锚点自检(export v2 对 host 的两个剥离锚仍可命中) ── */
+/* ── 5. 发布管线锚点自检(双形态感知: DEV 源码=锚在位; 发布产物=断言已转换形状) ── */
 const UL_DEF = /\/\* ── W1\.5 用量归流[\s\S]*?const ulRun = \(info, fn\) => \{[\s\S]*?\};\n/;
 const UL_CALL = /await ulRun\(\{ sid: options\.sessionId \|\| null, note: "moa-native\/refs" \}, \(\) => (.+)\);/;
 const ABS_DYN = /await import\("file:\/\/\/C:\/[^"]*dsh-typert-protocol\/lib\/index\.js"\)/;
-ok(UL_DEF.test(host) && UL_CALL.test(host), "W1.5 剥离锚点可命中(导出脚本可用)");
-ok(ABS_DYN.test(host), "动态 import 锚点可命中(导出脚本可用)");
+if (ABS_DYN.test(host)) {
+	ok(UL_DEF.test(host) && UL_CALL.test(host), "W1.5 剥离锚点可命中(导出脚本可用)");
+	ok(true, "动态 import 锚点可命中(导出脚本可用)");
+} else {
+	ok(host.includes('await import("@deepseek-ai/dsh-typert-protocol")'), "发布形态: 动态 import 已裸名化");
+	ok(!host.includes("ulRun") && !host.includes("__usageLedger"), "发布形态: W1.5 已剥离");
+}
 
 console.log(fails === 0 ? "V27 ALL PASS (" + 0 + " failures)" : fails + " FAILURES");
 process.exit(fails === 0 ? 0 : 1);
