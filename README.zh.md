@@ -2,6 +2,13 @@
 
 **[English](README.md)** · 中文
 
+<p>
+  <a href="https://www.npmjs.com/package/dsh-moa-native"><img src="https://img.shields.io/npm/v/dsh-moa-native?style=flat-square&color=cb3837" alt="npm version"></a>
+  <a href="https://github.com/DDL095/dsh-moa-native/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-10b981?style=flat-square" alt="MIT License"></a>
+  <a href="https://github.com/topics/dsh-plugin"><img src="https://img.shields.io/badge/DSH-Plugin-8b5cf6?style=flat-square" alt="DSH Plugin"></a>
+  <img src="https://img.shields.io/badge/Node-%3E%3D22.19-f59e0b?style=flat-square" alt="Node >= 22.19">
+</p>
+
 面向 DeepSeek Harness 的原生 Mixture-of-Agents 插件——**generation-time fusion**：参考模型每轮并行产出预演草稿，唯一行动模型带完整工具循环执行。
 
 <img src="docs/banner.svg" alt="dsh-moa-native banner" width="720">

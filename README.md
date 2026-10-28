@@ -5,10 +5,10 @@
 **Native Mixture-of-Agents for DeepSeek Harness — generation-time fusion**: reference models produce pre-run drafts in parallel every turn; the single acting model executes with full tooling.
 
 <p>
-  <a href="https://github.com/DDL095/dsh-moa-native/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-10b981?style=flat-square" alt="MIT License"></a>
+  <a href="https://www.npmjs.com/package/dsh-moa-native"><img src="https://img.shields.io/npm/v/dsh-moa-native?style=flat-square&color=cb3837" alt="npm version"></a>
+  <a href="https://github.com/DDL095/dsh-moa-native/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-10b981?style=flat-square" alt="MIT License"></a>
   <a href="https://github.com/topics/dsh-plugin"><img src="https://img.shields.io/badge/DSH-Plugin-8b5cf6?style=flat-square" alt="DSH Plugin"></a>
   <img src="https://img.shields.io/badge/Node-%3E%3D22.19-f59e0b?style=flat-square" alt="Node >= 22.19">
-  <img src="https://img.shields.io/badge/version-4.3.x-6366f1?style=flat-square" alt="version 4.3.x">
 </p>
 
 <p><b>English</b> | <a href="README.zh.md"><b>中文说明</b></a></p>

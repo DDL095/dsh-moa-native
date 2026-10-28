@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.3.4 (2026-10-28)
+
+Follow-up to the first npm release (`dsh-moa-native@4.3.3`): front-page fixes now ship in the published tarball.
+
+- **Live npm badge**: the static `version-4.3.x` badge is replaced by the dynamic `img.shields.io/npm/v/dsh-moa-native` badge; the Chinese README gains the badge row.
+- **LICENSE link fix**: `blob/main` → `blob/master` (the repository's default branch is `master`).
+
 ## 4.3.3 (2026-10-28)
 
 Repository front-page pass (community aesthetics + awesome-dsh-plugin submission prep).
