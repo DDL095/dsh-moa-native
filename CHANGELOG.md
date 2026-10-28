@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.3.3 (2026-10-28)
+
+Repository front-page pass (community aesthetics + awesome-dsh-plugin submission prep).
+
+- **English-first homepage with bilingual switch**: `README.md` is English (community convention, like the awesome list itself), `README.zh.md` carries the full Chinese version; both open with a language-switch line and the shared banner.
+- **Banner** (`docs/banner.svg`): refs→guidance→aggregator→reply pipeline strip rendered on the homepage.
+- **PNG tile** (`docs/assets/icon-180.png`) for the awesome-dsh-plugin market card.
+- README badges (MIT / DSH-Plugin / Node / version) in flat-square style.
+
 ## 4.3.2 (2026-10-28)
 
 Repository front page, diagrams, and privacy history pass.
