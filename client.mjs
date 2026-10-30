@@ -23,6 +23,7 @@ window.__ModuleLoader__.load({
 			const [st, setSt] = React.useState(null);
 			const [pv, setPv] = React.useState(null); /* v20: guidance 组合预览弹窗(null|"agg") */ /* {models, err, saving, saved} */
 			const [edit, setEdit] = React.useState(null);
+			const [rn, setRn] = React.useState(null); /* §三十 v4.3.9: 配方行内重命名 {from, val, err} */
 			React.useEffect(() => { (async () => {
 				try {
 					/* v8: HTTP 直读优先(panel.json 无 typert result 过滤), 失败回退 typert 通道 */
@@ -57,6 +58,7 @@ window.__ModuleLoader__.load({
 							reference_max_tokens: Number.isFinite(v.reference_max_tokens) ? String(v.reference_max_tokens) : "",
 							debug: !!v.debug,
 							aggInjection: typeof v.aggInjection === "string" && v.aggInjection ? v.aggInjection : "agg_default",
+							inputModalities: Array.isArray(v.inputModalities) ? (v.inputModalities.includes("image") ? "both" : "text") : "", /* §二十八 v4.3.7: 视觉声明往返保持(""/text/both), 面板保存不丢手工字段 */
 						};
 					};
 					/* 内置只读快照(effective 合并表中, raw.recipes 没有的内置名=未覆盖) */
@@ -78,7 +80,8 @@ window.__ModuleLoader__.load({
 					});
 				/* M4.4.2: providers/slots/efforts 用 JSON 直通解析结果覆盖(防 typert 字段过滤) */
 					const effortsBy = parseJsonField(modelRes && modelRes.effortsJson, (modelRes && modelRes.effortsBy) || {});
-					setSt({ models: Object.assign({}, modelRes, { providers: v7provs, slots: v7slots, effortsBy: effortsBy }), injDefault: (eff && typeof eff.injectionDefault === "string") ? eff.injectionDefault : "(默认注入文本下发失败——host v15 未生效?)", aggInjDefault: (eff && typeof eff.aggInjDefault === "string") ? eff.aggInjDefault : "", aggInjForRefsBlank: (eff && typeof eff.aggInjForRefsBlank === "string") ? eff.aggInjForRefsBlank : "", warnings: (eff && Array.isArray(eff.warnings)) ? eff.warnings : [] });
+					const modsBy = parseJsonField(modelRes && modelRes.modsJson, (modelRes && modelRes.modsBy) || {}); /* §二十九: 视觉徽章数据链 */
+					setSt({ models: Object.assign({}, modelRes, { providers: v7provs, slots: v7slots, effortsBy: effortsBy, modsBy: modsBy }), injDefault: (eff && typeof eff.injectionDefault === "string") ? eff.injectionDefault : "(默认注入文本下发失败——host v15 未生效?)", aggInjDefault: (eff && typeof eff.aggInjDefault === "string") ? eff.aggInjDefault : "", aggInjForRefsBlank: (eff && typeof eff.aggInjForRefsBlank === "string") ? eff.aggInjForRefsBlank : "", warnings: (eff && Array.isArray(eff.warnings)) ? eff.warnings : [] });
 				} catch (e) { setSt({ err: String(e && e.message || e) }); }
 			})(); }, [callCfg]);
 			if (st && st.err) return React.createElement("div", { style: { color: "var(--dsh-error, #c46)", padding: "12px", fontSize: "13px" } }, "加载失败: " + st.err);
@@ -86,17 +89,11 @@ window.__ModuleLoader__.load({
 			const models = st.models || {};
 			const slotsTable = Object.assign({}, models.slots, edit.slots);
 			const provEntries = Object.entries(models.providers || {});
-			/* 模型下拉: 命名条目组 + provider 分组(两级视觉: zai→glm-5.3…) */
-			const ModelSelect = ({ val, onCh }) => {
-				const bare = splitEffort(val)[0];
-				const known = provEntries.some(([p, ms]) => (ms || []).some((m) => p + "/" + m === bare));
-				return React.createElement("select", { value: bare || "", onChange: (e) => onCh(e.target.value), style: Object.assign({}, inputStyle, { flex: "1" }) },
-					React.createElement("option", { value: "" }, "（选择…）"),
-					bare && !known ? React.createElement("option", { value: bare }, bare + "（表外保留）") : null,
-					provEntries.map(([p, ms]) => React.createElement("optgroup", { key: "p-" + p, label: p }, (ms || []).map((m) => React.createElement("option", { key: p + "/" + m, value: p + "/" + m }, m + (edit.disabled_models.includes(p + "/" + m) ? "（禁用）" : ""))))),
-				);
-			};
-			/* effort 下拉: 选定模型后按需查档位; 命名条目=自带 effort 不再选 */
+			/* effort 下拉: 选定模型后按需查档位 */
+			/* §三十 v4.3.9: 该路 effort=真实旋钮(逐路传 reasoningEffort); off 档仅部分模型提供
+			 * (实况: deepseek/qwen 系有 off; glm/minimax 思考常开只能选低档省成本)。会话头部
+			 * 「推理等级」对 MoA 无效(伪路由 agent/request 剥除), 思考深度的唯一配置点=此处。 */
+			const EFFORT_TIP = "该路推理等级(真实生效): off=关思考(仅部分模型有此档, 如 deepseek/qwen 系; glm/minimax 思考常开, 低档=最省); effort:默认=不传=模型自身默认档。会话头部「推理等级」对 MoA 无效(伪路由自动剥除, 阵容思考深度在此配置)。";
 			const EffortSelect = ({ mid, val, onCh }) => {
 				/* v10: 本地 effortsBy 映射优先(panel.json 一次带全, 不走 typert); 无映射再异步查 */
 				const localEfforts = ((models.effortsBy || {})[mid]);
@@ -116,7 +113,7 @@ window.__ModuleLoader__.load({
 				if (!mid) return null;
 				if (Array.isArray(localEfforts) && localEfforts.length) {
 					const known = localEfforts.includes(val);
-					return React.createElement("select", { value: val || "", onChange: (e) => onCh(e.target.value), style: Object.assign({}, inputStyle, { flex: "0 1 110px" }) },
+					return React.createElement("select", { value: val || "", onChange: (e) => onCh(e.target.value), title: EFFORT_TIP, style: Object.assign({}, inputStyle, { flex: "0 1 110px" }) },
 						React.createElement("option", { value: "" }, "effort:默认"),
 						val && !known ? React.createElement("option", { value: val }, val + "（保留）") : null,
 						localEfforts.map((e) => React.createElement("option", { key: e, value: e }, e)));
@@ -124,7 +121,7 @@ window.__ModuleLoader__.load({
 				if (efforts === null) return React.createElement("span", { style: Object.assign({}, hintStyle, { margin: 0, flex: "0 0 auto", alignSelf: "center" }) }, "effort…");
 				if (!efforts.length) return React.createElement("span", { style: Object.assign({}, hintStyle, { margin: 0, flex: "0 0 auto", alignSelf: "center" }) }, "（无档位）");
 				const known = efforts.includes(val);
-				return React.createElement("select", { value: val || "", onChange: (e) => onCh(e.target.value), style: Object.assign({}, inputStyle, { flex: "0 1 110px" }) },
+				return React.createElement("select", { value: val || "", onChange: (e) => onCh(e.target.value), title: EFFORT_TIP, style: Object.assign({}, inputStyle, { flex: "0 1 110px" }) },
 					React.createElement("option", { value: "" }, "effort:默认"),
 					val && !known ? React.createElement("option", { value: val }, val + "（保留）") : null,
 					efforts.map((e) => React.createElement("option", { key: e, value: e }, e)));
@@ -177,6 +174,7 @@ window.__ModuleLoader__.load({
 				{ v: "__default__", t: "默认(类Hermes)" },
 				{ v: "__blank__", t: "空白(零注入)" },
 			].concat(Object.keys(edit.injections).map((k) => ({ v: k, t: k })));
+			const modBadge = (mid) => { const mv = ((st.models && st.models.modsBy) || {})[String(mid || "").split("@")[0]]; return React.createElement("span", { title: mv ? (mv.includes("image") ? "视觉模型: 该路可看图" : "纯文本模型: 图像将投影为占位文本(自动降级)") : "目录无模态声明(派生按纯文本计)", style: { fontSize: "12px", opacity: 0.85 } }, mv && mv.includes("image") ? "👁" : "📄"); }; /* §二十九 v4.3.8: 视觉徽章(modsBy 数据链, 设置时即见) */
 			const refRow = (v, i) => {
 				const inj = v.injection || "__default__";
 				const known = injOptions.some((o) => o.v === inj);
@@ -185,6 +183,7 @@ window.__ModuleLoader__.load({
 					React.createElement("select", { value: inj, onChange: (e) => setTgtInj(i, e.target.value), title: "注入文本模块(F 模式尾注)", style: Object.assign({}, inputStyle, { flex: "0 1 130px" }) },
 						!known ? React.createElement("option", { value: inj }, inj + "(缺失)") : null,
 						injOptions.map((o) => React.createElement("option", { key: o.v, value: o.v }, "✎ " + o.t))),
+					modBadge(v.model),
 					React.createElement("label", { title: "思考传递(§十九 v22-B): 该路思考原文(无截断)进 guidance, 块头+思考标注; 默认关。成本提示: guidance 在请求尾部, 每步 agg 全价重付", style: { fontSize: "11px", display: "flex", gap: "3px", alignItems: "center", opacity: 0.92, cursor: "pointer" } },
 						React.createElement("input", { type: "checkbox", checked: v.includeReasoning === true, onChange: (e) => setTgtInc(i, e.target.checked) }),
 						"思考"),
@@ -197,6 +196,19 @@ window.__ModuleLoader__.load({
 				upd({ recipes: Object.assign({}, edit.recipes, { [nm]: JSON.parse(JSON.stringify(tgt)) }), recipe: nm, newName: "" });
 			};
 			const delRecipe = () => { const nr = Object.assign({}, edit.recipes); delete nr[edit.recipe]; upd({ recipes: nr, recipe: "" }); };
+			/* §三十 v4.3.9: 配方行内重命名(改键保序+编辑指针跟随); 保留字表与 host PSEUDO_RESERVED 同源 */
+			const PSEUDO_RESERVED_CLIENT = ["default", "standard", "ref", "full"];
+			const doRename = (from) => {
+				const to = (rn && rn.val ? String(rn.val) : "").trim();
+				if (!to) { setRn(Object.assign({}, rn, { err: "名称不能为空" })); return; }
+				if (to === from) { setRn(null); return; }
+				if (PSEUDO_RESERVED_CLIENT.includes(to)) { setRn(Object.assign({}, rn, { err: "保留字(provider 页不可见): " + to })); return; }
+				if (edit.recipes[to]) { setRn(Object.assign({}, rn, { err: "已存在同名配方: " + to })); return; }
+				const nr = {};
+				for (const [kk, vv] of Object.entries(edit.recipes)) nr[kk === from ? to : kk] = vv;
+				upd({ recipes: nr, recipe: edit.recipe === from ? to : edit.recipe });
+				setRn(null);
+			};
 			const toggleDisabled = (mid) => upd({ disabled_models: edit.disabled_models.includes(mid) ? edit.disabled_models.filter((x) => x !== mid) : edit.disabled_models.concat([mid]) });
 			const save = async () => {
 				setSt(Object.assign({}, st, { saving: true, saved: null }));
@@ -204,7 +216,7 @@ window.__ModuleLoader__.load({
 					const cadOut = (v) => v === "user_turn" ? "user_turn" : v === "per_iteration" ? "per_iteration" : { every_n: Math.max(1, parseInt(v, 10) || 2) };
 					/* §十一 v15: refs 序列化——无注入还原字符串(最小 diff), 有注入输出 {model,injection} */
 					const serRef = (x) => { if (!x || !x.model) return ""; const base = (x.injection && x.injection !== "__default__") ? { model: x.model, injection: x.injection } : x.model; return (x.includeReasoning === true) ? Object.assign({}, typeof base === "string" ? { model: base } : base, { includeReasoning: true }) : base; }; /* §十九 v22-B: 勾选=对象形态带 includeReasoning, 未勾=最小 diff */
-					const outRecipe = (r) => { const o = { refs: r.refs.filter((x) => x && x.model && x.model.trim()).map(serRef), aggregator: r.aggregator }; if (r.aggInjection && r.aggInjection !== "agg_default") o.aggInjection = r.aggInjection; if (r.mode) o.mode = r.mode; if (r.cadence) o.cadence = cadOut(r.cadence); if (r.settle_ms !== "") o.settle_ms = Math.max(0, parseInt(r.settle_ms, 10) || 2000); if (r.reference_max_tokens !== "") o.reference_max_tokens = parseInt(r.reference_max_tokens, 10); if (r.debug) o.debug = true; return o; };
+					const outRecipe = (r) => { const o = { refs: r.refs.filter((x) => x && x.model && x.model.trim()).map(serRef), aggregator: r.aggregator }; if (r.aggInjection && r.aggInjection !== "agg_default") o.aggInjection = r.aggInjection; if (r.mode) o.mode = r.mode; if (r.cadence) o.cadence = cadOut(r.cadence); if (r.settle_ms !== "") o.settle_ms = Math.max(0, parseInt(r.settle_ms, 10) || 2000); if (r.reference_max_tokens !== "") o.reference_max_tokens = parseInt(r.reference_max_tokens, 10); if (r.debug) o.debug = true; if (r.inputModalities === "text" || r.inputModalities === "both") o.inputModalities = r.inputModalities === "text" ? ["text"] : ["text", "image"]; return o; }; /* §二十八: 显式视觉声明随配方序列化(空=省略走派生) */
 					const patch = {
 						mode: edit.direct.mode || undefined,
 						recipes: (() => { const o = {}; for (const [k, v] of Object.entries(edit.recipes)) o[k] = outRecipe(v); return o; })(),
@@ -217,6 +229,7 @@ window.__ModuleLoader__.load({
 						settle_ms: edit.direct.settle_ms !== "" ? Math.max(0, parseInt(edit.direct.settle_ms, 10) || 2000) : undefined,
 						reference_max_tokens: edit.direct.reference_max_tokens !== "" ? parseInt(edit.direct.reference_max_tokens, 10) : undefined,
 						debug: !!edit.direct.debug,
+						inputModalities: edit.direct.inputModalities === "text" ? ["text"] : edit.direct.inputModalities === "both" ? ["text", "image"] : null, /* §二十八: null=显式清除(host 侧删键), 防切回派生残留旧值 */
 						slots: edit.slots,
 						disabled_models: edit.disabled_models,
 						/* §二十六 v27: subagent 门控序列化("passthrough"=省略保最小 diff) */
@@ -226,6 +239,7 @@ window.__ModuleLoader__.load({
 					if (!patch.subagent_policy) delete patch.subagent_policy;
 					if (!patch.settle_ms) delete patch.settle_ms;
 					if (!patch.reference_max_tokens) delete patch.reference_max_tokens;
+					if (!patch.inputModalities && patch.inputModalities !== null) delete patch.inputModalities; /* null 保留(host 清除), undefined 删 */
 					const res = await callCfg("save", patch);
 					setSt(Object.assign({}, st, { saving: false, saved: res && res.ok ? "已保存(热生效)—— default 与配方已同步到 provider 页(新配方需重启后出现)" : "保存失败: " + ((res && res.error) || "未知") }));
 				} catch (e) { setSt(Object.assign({}, st, { saving: false, saved: "保存异常: " + String(e && e.message || e) })); }
@@ -256,16 +270,22 @@ window.__ModuleLoader__.load({
 					),
 					st.saved ? React.createElement("div", { style: Object.assign({}, hintStyle, { margin: "4px 0 0" }) }, st.saved) : null,
 					React.createElement("div", { style: hintStyle }, "配方(provider 页同名条目, 点选进入编辑):"),
-					Object.keys(edit.recipes).map((k) => React.createElement("div", { key: k, style: { display: "flex", gap: "6px", alignItems: "center", margin: "2px 0" } },
-						React.createElement("button", { onClick: () => upd({ recipe: k }), style: Object.assign({}, inputStyle, { flex: "1 1 auto", textAlign: "left" }, edit.recipe === k ? { fontWeight: 600, borderColor: "rgba(100,160,255,0.8)" } : {}) }, (edit.recipe === k ? "▸ " : "") + k + " · " + summary(edit.recipes[k])),
-						React.createElement("button", { onClick: () => { const nr = Object.assign({}, edit.recipes); delete nr[k]; upd({ recipes: nr, recipe: edit.recipe === k ? "" : edit.recipe }); }, style: inputStyle }, "🗑"))),
+					Object.keys(edit.recipes).map((k) => React.createElement("div", { key: "row-" + k, style: { display: "flex", gap: "6px", alignItems: "center", margin: "2px 0" } },
+						(rn && rn.from === k)
+							? [React.createElement("input", { key: "in", autoFocus: true, value: rn.val, placeholder: "新名称", onChange: (e) => setRn({ from: k, val: e.target.value, err: "" }), onKeyDown: (e) => { if (e.key === "Enter") doRename(k); else if (e.key === "Escape") setRn(null); }, style: Object.assign({}, inputStyle, { flex: "1 1 auto" }) }),
+								React.createElement("button", { key: "ok", onClick: () => doRename(k), title: "确认重命名(Enter)", style: inputStyle }, "✓"),
+								React.createElement("button", { key: "no", onClick: () => setRn(null), title: "取消(Esc)", style: inputStyle }, "✕"),
+								(rn.err ? React.createElement("span", { key: "err", style: { color: "var(--dsh-error, #c46)", fontSize: "12px" } }, rn.err) : null)]
+							: [React.createElement("button", { key: "sel", onClick: () => upd({ recipe: k }), style: Object.assign({}, inputStyle, { flex: "1 1 auto", textAlign: "left" }, edit.recipe === k ? { fontWeight: 600, borderColor: "rgba(100,160,255,0.8)" } : {}) }, (edit.recipe === k ? "▸ " : "") + k + " · " + summary(edit.recipes[k])),
+								React.createElement("button", { key: "rnb", onClick: () => setRn({ from: k, val: k, err: "" }), title: "重命名配方(改键名, 保序; 需保存生效, provider 页条目名重启后同步)", style: inputStyle }, "✎"),
+								React.createElement("button", { key: "del", onClick: () => { const nr = Object.assign({}, edit.recipes); delete nr[k]; upd({ recipes: nr, recipe: edit.recipe === k ? "" : edit.recipe }); if (rn && rn.from === k) setRn(null); }, style: inputStyle }, "🗑")])),
 					React.createElement("div", { style: { display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap", margin: "4px 0" } },
 						React.createElement("span", null, "新配方名:"), React.createElement("input", { value: edit.newName, placeholder: "空=参数N 自动", onChange: (e) => upd({ newName: e.target.value }), style: Object.assign({}, inputStyle, { flex: "0 1 150px" }) }),
 						React.createElement("button", { onClick: saveAs, style: inputStyle }, "＋ 从当前编辑新建配方")),
 				),
 				/* ══ 配置态(折叠·全部拓扑自由度) ══ */
 				React.createElement("details", { style: boxStyle },
-					React.createElement("summary", { style: hStyle }, "▸ 配置态: 编辑配方 / 命名条目 / 模型开关"),
+					React.createElement("summary", { style: hStyle }, "▸ 配置态: 编辑配方 / 模型开关"),
 					React.createElement("div", { style: Object.assign({}, hintStyle, { background: "rgba(127,127,127,0.12)", borderRadius: "4px", padding: "4px 8px", margin: "6px 0" }) },
 						"正在编辑: " + (usingRecipe ? ("配方「" + edit.recipe + "」(provider 页同名条目)") : "default · 默认配置(provider 页 moa-native · default)")),
 					/* §二十六 v27: subagent 门控(全局字段, 不随配方; 主会话不受影响) */
@@ -280,12 +300,15 @@ window.__ModuleLoader__.load({
 					React.createElement("div", { style: { margin: "8px 0" } },
 						React.createElement("div", { style: { display: "flex", gap: "6px", alignItems: "center", margin: "4px 0" } },
 							React.createElement("span", null, "模式:"), React.createElement("select", { value: tgt.mode, onChange: (e) => setTgtRaw({ mode: e.target.value }), style: inputStyle },
-								React.createElement("option", { value: "" }, "不绑定(兜底F)"), React.createElement("option", { value: "R" }, "R·裁剪视图"), React.createElement("option", { value: "F" }, "F·全量mirror"))),
+								React.createElement("option", { value: "" }, "不绑定(兜底F)"), React.createElement("option", { value: "R" }, "R·裁剪视图"), React.createElement("option", { value: "F" }, "F·全量mirror")),
+							React.createElement("span", { style: { fontSize: "12px", opacity: 0.85 } }, "视觉:"), React.createElement("select", { value: tgt.inputModalities || "", onChange: (e) => setTgtRaw({ inputModalities: e.target.value }), title: "伪模型 inputModalities 广告(贴图/read_image 入口闸): 派生=按成分目录声明并集(C 口径, 任一成分有视觉即开——vision refs 可看图转述给 text agg); 仅文本/文本+图像=强制覆盖。数据流各成分按自身声明治理(text-only 路自动投影占位, 不炸); 模型视觉纠正在 DSH 设置页·模型条目·输入类型", style: inputStyle },
+								React.createElement("option", { value: "" }, "派生·并集(默认)"), React.createElement("option", { value: "text" }, "仅文本"), React.createElement("option", { value: "both" }, "文本+图像"))),
+						(() => { const mB = (st.models && st.models.modsBy) || {}; const rr = (tgt.refs || []).filter((x) => x && x.model); const vn = rr.filter((x) => (mB[String(x.model).split("@")[0]] || []).includes("image")).length; const av = (mB[String(tgt.aggregator || "").split("@")[0]] || []).includes("image"); return React.createElement("div", { style: hintStyle }, "👁 视觉构成: refs " + vn + "/" + rr.length + " 路有视觉, agg " + (av ? "有视觉(图像直达全链路)" : "纯文本(vision refs 看图转述, 图像对 agg 投影占位)") + "。徽章无=目录无声明按文本计; 模型视觉在 DSH 设置页·模型条目·输入类型处修正(改后 30s 内派生自动跟随)。"); })(),
 						React.createElement("div", { style: hintStyle }, "refs(参考路, 每路=provider/模型/effort 三级下拉+注入模块下拉):"),
 						tgt.refs.map((v, i) => refRow(v, i)),
 						React.createElement("button", { onClick: () => setTgtRaw({ refs: tgt.refs.concat([{ model: "", injection: "", includeReasoning: false }]) }), style: inputStyle }, "+ ref 路"),
 						React.createElement("div", { style: { display: "flex", gap: "4px", alignItems: "center", marginTop: "4px" } },
-							React.createElement("span", { style: { flex: "0 0 auto" } }, "agg:"), React.createElement(TripleSelect, { val: tgt.aggregator, onCh: (nv) => setTgtRaw({ aggregator: nv }) })),
+							React.createElement("span", { style: { flex: "0 0 auto" } }, "agg:"), React.createElement(TripleSelect, { val: tgt.aggregator, onCh: (nv) => setTgtRaw({ aggregator: nv }) }), modBadge(tgt.aggregator)),
 						React.createElement("div", { style: { display: "flex", gap: "4px", alignItems: "center", marginTop: "2px" } },
 							React.createElement("span", { style: { flex: "0 0 auto", fontSize: "12px", opacity: 0.85 } }, "agg注入:"),
 							React.createElement("select", { value: tgt.aggInjection || "agg_default", onChange: (e) => setTgtRaw({ aggInjection: e.target.value }), title: "aggregator 纪律段注入(机制段自动不可配)", style: Object.assign({}, inputStyle, { flex: "0 1 170px" }) },
@@ -326,17 +349,6 @@ window.__ModuleLoader__.load({
 										React.createElement("br"),
 										"保留字: agg_default🔒=通用纪律 · agg_blank🔒=零纪律纯透明 frame · agg_forrefsblank🔒=refs 全 blank 平行预案纪律。")));
 						})(),
-					),
-					/* 命名条目(像新添加模型) */
-					React.createElement("details", { style: { margin: "8px 0" } },
-						React.createElement("summary", { style: { fontSize: "12px", opacity: 0.8 } }, "▸ 命名条目(模型+effort→命名, 像新添加模型一样复用)"),
-						Object.entries(edit.slots).map(([k, v], idx) => React.createElement("div", { key: "slot" + idx, style: { display: "flex", gap: "4px", marginBottom: "4px", alignItems: "center" } }, /* v25.1: key 去可变名(旧 k+idx 改名每键失焦) */
-							React.createElement("input", { value: k, placeholder: "条目名", onChange: (e) => { const ns = {}; for (const [kk, vv] of Object.entries(edit.slots)) ns[kk === k ? e.target.value : kk] = vv; upd({ slots: ns }); }, style: Object.assign({}, inputStyle, { flex: "0 1 110px" }) }),
-							React.createElement(ModelSelect, { val: v, onCh: (nv) => { const e2 = splitEffort(v)[1]; upd({ slots: Object.assign({}, edit.slots, { [k]: e2 ? nv + "@" + e2 : nv }) }); } }),
-							React.createElement(EffortSelect, { mid: splitEffort(v)[0], val: splitEffort(v)[1], onCh: (ne) => { const b = splitEffort(v)[0]; upd({ slots: Object.assign({}, edit.slots, { [k]: ne ? b + "@" + ne : b }) }); } }),
-							React.createElement("button", { onClick: () => { const ns = Object.assign({}, edit.slots); delete ns[k]; upd({ slots: ns }); }, style: inputStyle }, "✕"))),
-						React.createElement("button", { onClick: () => { let n = 1; const t = Object.keys(edit.slots); while (t.includes("条目" + n)) n++; upd({ slots: Object.assign({}, edit.slots, { ["条目" + n]: "" }) }); }, style: inputStyle }, "+ 新条目"),
-						React.createElement("div", { style: hintStyle }, "条目出现在模型下拉的「命名条目」组; 引用共享槽位名(glm-fast 等)仍可解析(兼容层)。"),
 					),
 					/* §十一 v15: 注入文本模块管理(默认🔒+空白🔒+自建) */
 				React.createElement("details", { style: { margin: "8px 0" } },

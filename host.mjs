@@ -368,6 +368,14 @@ function loadConfig() {
 	/* §十八 P1: 配置级 fail-visible——引用不存在的注入名(运行时回落但用户应看到) */
 	const warnings = [];
 	if (j.aggInjection && typeof j.aggInjection === "string" && ![AGG_INJ_DEFAULT_NAME, AGG_INJ_BLANK_NAME, AGG_INJ_FORREFSBLANK_NAME].includes(j.aggInjection) && !aggInjections[j.aggInjection]) warnings.push("agg 注入「" + j.aggInjection + "」未自建, 运行时回落 agg_default");
+	/* §二十八 v4.3.7: inputModalities 合法性(只认 text / text+image 且必须含 text——纯 image 非法,
+	 * 文本是底线能力; 定义于 recipes 循环前防 TDZ——§十八 register 崩溃事故同款教训) */
+	const normMods = (v, where) => {
+		if (!Array.isArray(v)) { warnings.push(where + " inputModalities 应为数组([\"text\"]|[\"text\",\"image\"]), 已忽略"); return null; }
+		const s = [...new Set(v.filter((x) => x === "text" || x === "image"))];
+		if (!s.includes("text") || s.length !== v.length) { warnings.push(where + " inputModalities 非法(只认 text/text+image 且必须含 text), 已忽略: " + JSON.stringify(v)); return null; }
+		return s;
+	};
 	const recipes = {};
 	if (j.recipes && typeof j.recipes === "object") {
 		for (const [k, v] of Object.entries(j.recipes)) {
@@ -378,6 +386,7 @@ function loadConfig() {
 				if (Number.isFinite(v.settle_ms)) recipes[k].settle_ms = Math.max(0, Math.floor(v.settle_ms));
 				if (v.reference_max_tokens !== undefined) recipes[k].reference_max_tokens = v.reference_max_tokens;
 				if (typeof v.aggInjection === "string" && v.aggInjection) recipes[k].aggInjection = v.aggInjection; /* §十七 v20: 配方级 agg 注入 */
+				if (v.inputModalities !== undefined) { const mm = normMods(v.inputModalities, "配方「" + k + "」"); if (mm) recipes[k].inputModalities = mm; } /* §二十八: 配方级广告终裁 */
 				if (v.debug !== undefined) recipes[k].debug = !!v.debug;
 			}
 		}
@@ -414,6 +423,10 @@ function loadConfig() {
 	if (j.subagent_policy === "passthrough" || j.subagent_policy === "full") subagentPolicy = { mode: j.subagent_policy };
 	else if (j.subagent_policy && typeof j.subagent_policy === "object" && Number.isFinite(j.subagent_policy.every_n)) subagentPolicy = { mode: "every_n", n: Math.min(50, Math.max(1, Math.floor(j.subagent_policy.every_n))) };
 	else if (j.subagent_policy !== undefined) warnings.push("subagent_policy 应为 'passthrough'|'full'|{every_n:N}, 已忽略(按 passthrough)");
+	/* §二十九 v4.3.8: model_modalities 影子层移除(用户裁定"多此一举"成立)——单一事实源=DSH 设置页
+	 * 模型条目的 inputModalities 编辑器(ModelInputTypes 组件); 目录错在源头修, 派生 30s 内自动跟随 */
+	if (j.model_modalities !== undefined) warnings.push("model_modalities 已移除(v4.3.8): 模型视觉声明请在 DSH 设置页·模型条目·输入类型处修正(单一事实源, 派生自动跟随)");
+	const inputModalities = j.inputModalities !== undefined ? normMods(j.inputModalities, "顶层") : null; /* 顶层广告终裁(default/直配) */
 	const cfg = {
 		mode,
 		recipe,
@@ -440,6 +453,7 @@ function loadConfig() {
 		settle_ms: Number.isFinite(j.settle_ms) ? Math.max(0, Math.floor(j.settle_ms)) : 2000, // 中断后 settle 窗口(Hermes _REFERENCE_INTERRUPT_SETTLE_S 同款语义)
 		cadence,
 		subagentPolicy, /* §二十六 v27 */
+		inputModalities, /* §二十八 v4.3.7: 视觉模态顶层广告终裁(喂伪模型派生); §二十九: modelModalities 影子层已移除 */
 		debug: !!j.debug,
 		/* M4.4 运行轨迹(内存 ring; 面板"运行轨迹"卡片数据源; false=全链路不记) */
 		trace: j.trace === false ? false : true,
@@ -910,6 +924,93 @@ function cadLabel(cn) { /* v25.2: cadence 显示标签(原始"per_iteration"/{ev
 	const n = cn && typeof cn === "object" ? Number(cn.every_n ?? (cn.kind === "every" ? cn.n : NaN)) : NaN;
 	return Number.isFinite(n) && n > 0 ? ("skip" + n) : "user_turn";
 }
+/* ── §二十八 v4.3.7: 视觉模态派生引擎(纯函数, 可提取单测) ──
+ * 口径=并集(C): agg∪refs 任一成分声明 image 即伪模型广告 text+image。
+ * 自洽性: 闸门只承诺入口(贴图/read_image/inline 广告); 数据流各成分按自身声明治理——
+ * dsh-llm:2337 对 text-only 模型自动投影图片为占位文本(textOnlyImageText), 不炸;
+ * vision refs 看图→guidance 转述给 text agg = MoA 特有的「视觉转述」形态, 属 C 口径红利。
+ * §二十九 v4.3.8: 模态唯一事实源=DSH 模型目录(listModels 的 inputModalities, 设置页
+ * ModelInputTypes 可编辑); model_modalities 影子层已移除, 派生只吃目录快照。
+ * 终裁优先级(伪模型广告): 配方/顶层 inputModalities 显式 > 派生(缺省=C 并集);
+ * 目录无该成分声明 → 按 text 计并入 detail.why=unknown(fail-visible: 调用方打警告, 不静默)。
+ * 同步纯函数: 只吃 catalogSnapshot(外部预取的 Map prov/model→mods|undefined), 不做 IO——
+ * buildPseudoModels(同步)/resolveModel(异步) 两形态共用, 见 modalityCache 分层。 */
+function deriveModalities(effRefs, effAgg, catalogSnapshot) {
+	const perModel = (pm) => {
+		if (!pm) return { mods: null, why: "empty" };
+		const bare = String(pm).split("@")[0];
+		const cm = catalogSnapshot ? catalogSnapshot.get(bare) : undefined;
+		if (cm === undefined) return { mods: null, why: "unknown" }; /* 目录无声明: 保守按 text */
+		return { mods: cm, why: "catalog" };
+	};
+	const parts = [effAgg].concat(Array.isArray(effRefs) ? effRefs : []).map((r) => (r && typeof r === "object") ? String(r.model || "") : String(r || ""));
+	const detail = [];
+	let image = false;
+	const unknown = [];
+	for (const p of parts) {
+		const r = perModel(p);
+		detail.push({ model: String(p).split("@")[0], mods: r.mods || ["text"], why: r.why });
+		if (r.why === "unknown") unknown.push(String(p).split("@")[0]);
+		if (r.mods && r.mods.includes("image")) image = true;
+	}
+	return { mods: image ? ["text", "image"] : ["text"], detail, unknown };
+}
+/* §二十八: 模态目录快照缓存——异步预取(全 provider 目录), 同步消费(buildPseudoModels)。
+ * 分层: resolveModel(async)刷新快照; buildPseudoModels(sync)只读快照; 预热完成前=null→全 text 保守
+ * (=修复前行为, 零回归风险)。目录解析全败=保留旧快照(防抖动: 避免 vision 态在 text↔image 间翻转)。 */
+let __modalityCatalogSync = null;
+let __modalityCatalogAt = 0;
+async function prefetchModalityCatalog(llm, maxAgeMs) {
+	if (__modalityCatalogSync && Date.now() - __modalityCatalogAt < (maxAgeMs === undefined ? 30000 : maxAgeMs)) return __modalityCatalogSync;
+	const m = new Map();
+	let provsOk = 0;
+	try {
+		const provs = await llm.listProviders();
+		for (const p of (Array.isArray(provs) ? provs : [])) {
+			const pid = typeof p === "string" ? p : (p && p.id) || "";
+			if (!pid || pid === PSEUDO) continue;
+			let models = [];
+			try { models = await llm.listModels(pid); } catch { continue; }
+			provsOk++;
+			for (const mm of (Array.isArray(models) ? models : [])) {
+				const mid = mm && mm.id;
+				if (!mid) continue;
+				const mods = Array.isArray(mm.inputModalities) ? [...new Set(mm.inputModalities.filter((x) => x === "text" || x === "image"))] : null;
+				if (mods && mods.includes("text")) m.set(pid + "/" + mid, mods); /* 无声明/无 text=不落表→派生侧按 unknown→text(目录语义: absent means unknown) */
+			}
+		}
+	} catch { /* listProviders 全败 */ }
+	/* §二十八: provsOk=0(启动早期其他 adapter 未注册完)不盖 TTL——__modalityCatalogAt=0 使 TTL 恒过期,
+	 * 下次 resolveModel 立即重取, provider 就绪后秒级自愈; 有数据才入 30s 缓存(防抖动)。 */
+	if (provsOk > 0) { __modalityCatalogSync = m; __modalityCatalogAt = Date.now(); }
+	else if (!__modalityCatalogSync) { __modalityCatalogSync = m; __modalityCatalogAt = 0; }
+	return __modalityCatalogSync;
+}
+/* §二十八: 伪模型广告模态(同步形态——显式终裁 > 派生; 消费快照缓存) */
+function pseudoModsForSync(cfg, recipeName) {
+	const R = recipeName && cfg.recipes && cfg.recipes[recipeName] ? cfg.recipes[recipeName] : null;
+	if (R && R.inputModalities) return R.inputModalities; /* 配方级显式终裁 */
+	if (!R && cfg.inputModalities) return cfg.inputModalities; /* 顶层显式终裁(default/直配/表外名) */
+	return deriveModalities(R ? R.refs : cfg.refs, R ? R.aggregator : cfg.aggregator, __modalityCatalogSync).mods; /* §二十九: 3 参形态, 目录快照唯一来源 */
+}
+/* §二十八: 异步新鲜形态(resolveModel/prepareCall 路径)——显式终裁免目录; 派生则刷新快照(30s TTL)后重算。
+ * 审计: 每 (名字, 模态签名) 一次性 console.log(防热路径刷屏), 内容=各成分声明明细+口径来源。 */
+const __modalityAudited = new Set();
+async function pseudoModsAsync(ctx, pseudoModel) {
+	const cfg = loadConfig();
+	const R = (cfg.recipes && cfg.recipes[pseudoModel]) || (cfg.recipe && cfg.recipes[cfg.recipe]) || null;
+	if (R && R.inputModalities) return R.inputModalities;
+	if (!R && cfg.inputModalities) return cfg.inputModalities;
+	await prefetchModalityCatalog(ctx.llm);
+	const d = deriveModalities(R ? R.refs : cfg.refs, R ? R.aggregator : cfg.aggregator, __modalityCatalogSync); /* §二十九: 3 参形态 */
+	const name = R ? "配方[" + ((cfg.recipes && cfg.recipes[pseudoModel]) ? pseudoModel : cfg.recipe) + "]" : "default/直配";
+	const sig = name + "|" + d.mods.join("+");
+	if (!__modalityAudited.has(sig)) {
+		__modalityAudited.add(sig);
+		console.log("[moa-native] 模态派生: " + name + " → " + d.mods.join("+") + "(成分: " + d.detail.map((x) => x.model.split("/").pop() + "=" + (x.mods.includes("image") ? "vision(" + x.why + ")" : "text(" + x.why + ")")).join(" ") + ")" + (d.unknown.length ? " ⚠ 目录无声明按 text: " + d.unknown.join(", ") : ""));
+	}
+	return d.mods;
+}
 function recipeSummary(r) {
 	const short = (s) => { const v = (s && typeof s === "object") ? String(s.model || "") : String(s || ""); return v.split("@")[0].split("/").pop(); };
 	const cad = cadLabel(r && r.cadence);
@@ -918,11 +1019,11 @@ function recipeSummary(r) {
 function buildPseudoModels() {
 	const cfg = loadConfig();
 	const out = [
-		{ provider: PSEUDO, id: "default", name: "moa-native · default(默认配置)", description: "默认配方: " + recipeSummary({ refs: cfg.refs, aggregator: cfg.aggregator, mode: cfg.mode || "F", cadence: cfg.cadence }) + " —— 在 Moa-Native 控制台「默认配置」区编辑; /moaR /moaF 可临时覆盖模式", inputModalities: ["text"] },
+		{ provider: PSEUDO, id: "default", name: "moa-native · default(默认配置)", description: "默认配方: " + recipeSummary({ refs: cfg.refs, aggregator: cfg.aggregator, mode: cfg.mode || "F", cadence: cfg.cadence }) + " —— 在 Moa-Native 控制台「默认配置」区编辑; /moaR /moaF 可临时覆盖模式", inputModalities: pseudoModsForSync(cfg, null) },
 	];
 	for (const [k, v] of Object.entries(cfg.recipes || {})) {
 		if (PSEUDO_RESERVED.includes(k)) continue; /* 保留字冲突跳过(面板侧应提示避开) */
-		out.push({ provider: PSEUDO, id: k, name: "moa-native · " + k, description: "配方常驻: " + recipeSummary(v) + " —— 选中=该会话每轮用此配方全套(模式/阵容/参数内含)", inputModalities: ["text"] });
+		out.push({ provider: PSEUDO, id: k, name: "moa-native · " + k, description: "配方常驻: " + recipeSummary(v) + " —— 选中=该会话每轮用此配方全套(模式/阵容/参数内含)", inputModalities: pseudoModsForSync(cfg, k) });
 	}
 	return out;
 }
@@ -931,7 +1032,7 @@ function pseudoResolved(provider, model) {
 	/* [实测 Fix] 声明全档 reasoning(efforts 每项必须 {id,name} 双字段, 少 name 报 INVALID_MODEL_REASONING):
 	 * M3 注册后 effort 校验链被激活, 任何来源(agent options/persisted header/goal 驱动独立查询)
 	 * 传入的 effort 都过校验——伪模型档位无意义, 拦截后换真实 aggregator 时重解析。 */
-	const base = m || { provider: PSEUDO, id: String(model || "standard"), name: "moa-native · " + String(model || "standard"), description: "(表外配方名, 按面板配置执行)", inputModalities: ["text"] };
+	const base = m || { provider: PSEUDO, id: String(model || "standard"), name: "moa-native · " + String(model || "standard"), description: "(表外配方名, 按面板配置执行)", inputModalities: pseudoModsForSync(loadConfig(), null) };
 	return { ...base, provider, reasoning: { efforts: [
 		{ id: "minimal", name: "Minimal" }, { id: "low", name: "Low" }, { id: "medium", name: "Medium" },
 		{ id: "high", name: "High" }, { id: "max", name: "Max" },
@@ -983,7 +1084,9 @@ function makePseudoAdapter(ctx) {
 		async resolveModel(provider, model) {
 			const resolved = pseudoResolved(provider, model);
 			const win = await pseudoAggContextWindow(ctx, model); /* v22-A2: 目录条目同源 window */
-			return { ...resolved, ...(win ? { context: { contextWindow: win } } : {}) };
+			/* §二十八: 模态异步新鲜(快照刷新后重算), 覆盖同步形态的保守值 */
+			const mods = await pseudoModsAsync(ctx, model);
+			return { ...resolved, inputModalities: mods, ...(win ? { context: { contextWindow: win } } : {}) };
 		},
 		async prepareCall(provider, model) {
 			const resolved = pseudoResolved(provider, model);
@@ -994,7 +1097,9 @@ function makePseudoAdapter(ctx) {
 			else if (!__pseudoWinWarned.has(provider + "/" + model)) { __pseudoWinWarned.add(provider + "/" + model); console.error("[moa-native] prepareCall: " + provider + "/" + model + " contextWindow 未解析(agg 两源皆无)——GUI 上下文圈将不显示(一次性告警)"); }
 			/* v22-A2(2026-10-26 会话 fa451c54 实证修正): context 必须挂在 model 对象内——
 			 * dsh-llm prepareCall→normalizeModelInfo 只读 adapterCall.model.context, 顶层 context 被无视 */
-			return { model: { ...resolved, ...(win ? { context: { contextWindow: win } } : {}) }, stream: (options) => pseudoFallbackStream(options) };
+			/* §二十八: 模态同挂 model 对象(异步新鲜); read_image 闸(dsh-acp:68)经 resolveModelInfo→resolveModel 消费此值 */
+			const mods = await pseudoModsAsync(ctx, model);
+			return { model: { ...resolved, inputModalities: mods, ...(win ? { context: { contextWindow: win } } : {}) }, stream: (options) => pseudoFallbackStream(options) };
 		},
 		stream(options) { return pseudoFallbackStream(options); },
 	};
@@ -1397,6 +1502,13 @@ function apply(ctx) {
 	try {
 		adapterDispose = ctx.llm.registerAdapter([PSEUDO], makePseudoAdapter(ctx)); /* v22-A: 传 ctx 供 contextWindow 双源解析 */
 		console.log("[moa-native] 伪 provider 已注册(GUI 可选 moa-native · standard/ref/full 三形态)");
+		/* §二十八 v4.3.7: 模态目录预热(异步 fire-and-forget; 完成前伪模型按全 text 保守=修复前行为, 零回归) */
+		prefetchModalityCatalog(ctx.llm, 0).then(() => {
+			const cfg = loadConfig();
+			const names = [null].concat(Object.keys(cfg.recipes || {}).filter((k) => !PSEUDO_RESERVED.includes(k)));
+			const sz = __modalityCatalogSync ? __modalityCatalogSync.size : 0;
+			console.log("[moa-native] 模态目录预热完成(" + sz + " 模型): " + (sz === 0 ? "(目录空——其他 provider 未就绪, 已设恒重试, resolveModel 时自动补全) " : "") + names.map((k) => (k || "default") + "=" + pseudoModsForSync(cfg, k).join("+")).join(", "));
+		}).catch(() => { /* 预热失败不阻断; 伪模型维持全 text */ });
 	} catch (e) { console.error("[moa-native] registerAdapter 失败(常驻形态不可用, /moa 斜杠不受影响): " + errText(e)); }
 	const cfgBoot = loadConfig();
 	/* v25.1 审计修复(P1 纯净安装): 阵容引用未注册 provider 时显性告警(不阻断启动; /moa 轮将 NO_ADAPTER fail-loud) */
@@ -1887,6 +1999,14 @@ function apply(ctx) {
 								out.runtime_ok = true;
 								const ms = await ctx.llm.listModels(midx);
 								out.providers[midx] = (Array.isArray(ms) ? ms : []).map((m) => (m && typeof m === "object" ? (m.id || m.model || String(m)) : String(m))).filter(Boolean);
+							/* §二十九 v4.3.8: per-model 模态随模型表顺路收集(同循环零额外调用, client 徽章数据源) */
+							if (!out.modsBy) out.modsBy = {};
+							for (const m of (Array.isArray(ms) ? ms : [])) {
+								if (m && typeof m === "object" && m.id && Array.isArray(m.inputModalities)) {
+									const v = [...new Set(m.inputModalities.filter((x) => x === "text" || x === "image"))];
+									if (v.length) out.modsBy[midx + "/" + m.id] = v;
+								}
+							}
 								/* v10: 实时 reasoning.efforts 收集(档位随模型表一次带到端点) */
 								for (const m of (Array.isArray(ms) ? ms : [])) {
 									if (m && typeof m === "object" && m.id && m.reasoning && Array.isArray(m.reasoning.efforts)) {
@@ -1916,7 +2036,7 @@ function apply(ctx) {
 					console.log("[moa-native] models 诊断: providers=" + Object.keys(out.providers).map((k) => k + "(" + out.providers[k].length + ")").join(",") + " | slots=" + Object.keys(out.slots).length + " | runtime_ok=" + out.runtime_ok);
 					if (!Object.keys(out.providers).length) console.error("[moa-native] models: providers 全空(runtime_ok=" + out.runtime_ok + ")——实时与注册表两源皆无数据");
 					/* M4.4.2 fix: 同 list——providers/slots 对象走 JSON 字符串直通, 原字段保留兼容 */
-					return { ok: true, providersJson: JSON.stringify(out.providers), slotsJson: JSON.stringify(out.slots), effortsJson: JSON.stringify(out.effortsBy), runtime_ok: out.runtime_ok, providers: out.providers, slots: out.slots, effortsBy: out.effortsBy };
+					return { ok: true, providersJson: JSON.stringify(out.providers), slotsJson: JSON.stringify(out.slots), effortsJson: JSON.stringify(out.effortsBy), modsJson: JSON.stringify(out.modsBy || {}), runtime_ok: out.runtime_ok, providers: out.providers, slots: out.slots, effortsBy: out.effortsBy, modsBy: out.modsBy || {} };
 				},
 				/* M4.2.2: 按需单查模型 effort 档位(resolveModel 缓存友好, client 选定模型后调);
 				 * resolveModel 不可达(实时目录缺失)时注册表兜底(reasoningEfforts/thinkingBudgets) */
@@ -1949,6 +2069,8 @@ function apply(ctx) {
 						if (!patch || typeof patch !== "object") return { ok: false, error: "patch 非对象" };
 						const cur = readRaw();
 						const next = { ...cur, ...patch };
+						/* §二十八: null=显式清除(派生回落)——merge 语义下删键不清存储, 顶层 inputModalities 切回派生依赖此 */
+						for (const k of Object.keys(next)) if (next[k] === null) delete next[k];
 						/* 阵容字段整体替换语义(refs/recipes/slots/disabled_models 数组/对象由面板发全量) */
 						mkdirSync(dirname(NATIVE_CONFIG_PATH), { recursive: true });
 						writeFileSync(NATIVE_CONFIG_PATH, JSON.stringify(next, null, 2) + "\n", "utf8");

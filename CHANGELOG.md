@@ -1,5 +1,34 @@
 # Changelog
 
+## 4.3.10 (2026-10-30)
+
+Console cleanup: the legacy "named entries" management section is removed from the config area.
+
+- Model selection in the panel is now exclusively the three-level provider → model → effort dropdowns (the 2026-10-24 design final). The removed section had been a leftover from an earlier "named entry appears like a new model" concept that was superseded the same day; its hint text no longer matched actual behavior.
+- Hand-written slot aliases in the config file keep resolving (compat layer retained host-side; loading/saving never touches them).
+
+## 4.3.9 (2026-10-30)
+
+Console usability round: rename recipes in place, and honest effort guidance.
+
+- **Inline recipe rename**: each recipe row gains a ✎ button — Enter confirms, Esc cancels; reserved names (default/standard/ref/full) and duplicates are rejected. The rename takes effect on save; the provider-page entry name follows on next restart (the pseudo-model list is scanned at boot).
+- **Effort tooltips**: both effort dropdowns (per-ref and aggregator) now explain what they actually control — per-route reasoning effort is real and per-route; the session-header "reasoning level" selector has **no effect** on MoA sessions (the pseudo-route strips it); `off` exists only where the model provides it (deepseek/qwen families; glm/minimax thinking is always-on — pick a low tier to save).
+
+## 4.3.8 (2026-10-30)
+
+One source of truth for vision, and vision visibility at setup time.
+
+- **`model_modalities` shadow table removed**: per-model vision is corrected once, in the DSH Settings page (model entry → input types); the derivation follows automatically within ~30 s. Legacy config keys now produce a visible deprecation warning instead of silently overriding.
+- **Vision badges + composition line**: every ref row and the aggregator row show an eye/page badge ("can this route see images?"), and a summary line states the whole recipe's vision shape — e.g. "refs 2/4 have vision; agg is text-only — vision refs describe images, the agg receives placeholder text". This is visible while configuring, before anything runs.
+
+## 4.3.7 (2026-10-30)
+
+Vision for MoA routes: image paste and `read_image` now work in sessions running a recipe.
+
+- **Derived modality (union policy)**: the pseudo-model advertises text+image whenever any component model (any ref or the aggregator) declares image input in the DSH catalog — the old hardcoded `["text"]` blocked image tools outright even when every component could see. Data flow stays per-model: text-only routes receive the official image-placeholder projection (never a crash), and vision refs can describe images to a text-only aggregator — a MoA-native "vision relay" shape.
+- **Explicit override**: recipe-level and top-level `inputModalities` (three-state dropdown in the console) can force text-only or text+image; clearing the override falls back to derivation with no stale residue.
+- Startup preheat plus live catalog refresh; a derivation audit line lists per-component sources (explicit / catalog / unknown).
+
 ## 4.3.6 (2026-10-28)
 
 Second fix from field reports: the GUI context-occupancy ring now renders on fresh installs.
