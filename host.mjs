@@ -133,15 +133,21 @@ function traceArchiveRead(dateStr) {
 }
 let traceSeq = 0;
 /* ── §九 v13: 轨迹会话化——wsId 反查 + turnInSession + totalTurns ──
- * 工作区隔离基石(2026-10-25 实测): DSH 会话存储 = ~/.dsh/sessions/<wsDir>/<session-uuid>/,
- * wsDir=工作区路径编码(--D-my-workspace-- = D:\my-workspace, 中文 ~XXXX~ 转义), sessionId→ws 可反查 */
+ * 工作区隔离基石(2026-10-25 实测): DSH 会话存储 = ~/.dsh/sessions/<wsDir>/<会话id>/, 会话目录双形态:
+ * 主会话 session-<uuid> / 子会话裸 <uuid>(v4.3.11 前旧索引漏收后者); wsDir=工作区路径编码
+ * (--D-my-workspace-- = D:\my-workspace, 中文 ~XXXX~ 转义), sessionId→ws 可反查 */
 const SESSIONS_DIR = join(homedir(), ".dsh", "sessions");
 const wsIndex = new Map(); // sessionId → wsDir(如 --D-my-workspace--)
+/* §三十 v4.3.11(2026-11-01 实锤修复): DSH 0.2.1-rc.x 会话目录双形态——主会话 session-<uuid>,
+ * 子会话裸 <uuid>(头 origin:'subagent'/delegationDepth≥1 完好在档)。旧过滤器只收 session- 前缀
+ * → wsOf(子会话)恒 null → sessionOriginOf 走不到读头分支, fail-open 判 "main" 并永久缓存
+ * → v27 门控自上线起对真实子会话 100% 失效(每步全量扇 refs)。裸 uuid 精确正则防误收非会话目录。 */
+const BARE_SESSION_DIR = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 function wsIndexBuild() {
 	try {
 		for (const ws of readdirSync(SESSIONS_DIR, { withFileTypes: true })) {
 			if (!ws.isDirectory()) continue;
-			try { for (const s of readdirSync(join(SESSIONS_DIR, ws.name), { withFileTypes: true })) if (s.isDirectory() && s.name.startsWith("session-")) wsIndex.set(s.name, ws.name); } catch { /* 单 ws 读失败跳过 */ }
+			try { for (const s of readdirSync(join(SESSIONS_DIR, ws.name), { withFileTypes: true })) if (s.isDirectory() && (s.name.startsWith("session-") || BARE_SESSION_DIR.test(s.name))) wsIndex.set(s.name, ws.name); } catch { /* 单 ws 读失败跳过 */ }
 		}
 	} catch { /* sessions 目录不存在 → 空 index */ }
 }

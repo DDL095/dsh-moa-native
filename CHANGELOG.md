@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.3.11 (2026-11-01)
+
+Hotfix: the subagent gating feature (v27) never actually applied to real subagent sessions — now it does.
+
+- **Root cause**: DSH stores sessions in two directory shapes — main sessions as `session-<uuid>`, subagent sessions as a bare `<uuid>`. The gating index only collected the `session-` prefixed form, so every real subagent session fell through to a fail-open "main session" verdict (cached forever). Result: a subagent that inherits a pseudo-model route ran the full MoA fan-out on every step, ignoring the `subagent_policy` gate entirely. Found via run-trace cost anomalies (e.g. 99 illegitimate fan-outs on Nov 1 alone across inheriting sessions; the header fields `origin:"subagent"`/`delegationDepth:1` were present and readable all along).
+- **Fix**: the index now accepts both directory shapes (strict UUID-v4 regex guards against collecting non-session directories). Sessions on real (non-pseudo) model routes were never intercepted and are unaffected either way.
+- **Regression coverage**: verify-v27 gains source assertions plus a real-sessions-tree replay (indexes 713 main + 2482 subagent directories on the reference machine; skips portably when the tree is absent).
+- Remaining hardening (fail-closed re-checks, short TTL) is tracked on the design roadmap for the rhythm workstream.
+
 ## 4.3.10 (2026-10-30)
 
 Console cleanup: the legacy "named entries" management section is removed from the config area.

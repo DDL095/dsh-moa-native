@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // verify-v27.mjs — §二十六 v27 两特性断言: subagent 门控 + 预运行框架
 // 用法: node scripts/verify-v27.mjs   (纯逻辑复演+源码断言, 不依赖 DSH 重启)
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
+import zlib from "node:zlib";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const host = readFileSync(join(root, "host.mjs"), "utf8");
@@ -58,6 +60,51 @@ ok(host.includes("[MoA 预运行参考]"), "机制段改预运行框架");
 ok(host.includes("把它们当作你自己的多份草稿来核对与超越"), "草稿核对句在位");
 ok(!host.includes("[MoA 参考输入]") && !host.includes("[MoA 参考意见] 以下来自"), "旧机制段措辞已退役");
 ok(host.includes("唯一执行者"), "唯一执行者声明在位");
+
+/* ── 3.5 §三十 v4.3.11 回归: 会话目录双形态索引(裸 uuid 子会话漏索引实锤修复) ──
+ * 2026-11-01 实锤: DSH 0.2.1-rc.x 子会话目录为裸 uuid(头 origin:'subagent'/delegationDepth≥1
+ * 完好在档), 旧 wsIndexBuild 只收 session- 前缀 → wsOf(子会话)恒 null → sessionOriginOf
+ * fail-open 判 main 并永久缓存 → v27 门控对真实子会话 100% 失效(每步全量扇 refs)。 */
+ok(/startsWith\("session-"\) \|\| BARE_SESSION_DIR\.test\(s\.name\)/.test(host), "wsIndexBuild 过滤器双形态(session- 前缀 + 裸 uuid)");
+ok(/const BARE_SESSION_DIR = \/\^\[0-9a-f\]\{8\}-\[0-9a-f\]\{4\}/.test(host), "裸 uuid 精确正则在位(防误收非会话目录)");
+
+/* ── 3.6 真实会话树复演(识别链首次真实数据验证; sessions 目录缺失=SKIP, 发布仓可移植) ── */
+{
+	const SESSIONS = join(homedir(), ".dsh", "sessions");
+	if (!existsSync(SESSIONS)) console.log("SKIP 3.6 真实树复演(无 sessions 目录)");
+	else {
+		const m2 = host.match(/const BARE_SESSION_DIR = (\/[^\n]+\/);/);
+		ok(m2 !== null, "谓词可从源内提取(复演零漂移)");
+		if (m2) {
+			const re = new Function("return " + m2[1])();
+			let pref = 0, bare = 0, bareSub = 0, checked = 0;
+			for (const ws of readdirSync(SESSIONS, { withFileTypes: true })) {
+				if (!ws.isDirectory()) continue;
+				try {
+					for (const s of readdirSync(join(SESSIONS, ws.name), { withFileTypes: true })) {
+						if (!s.isDirectory()) continue;
+						if (s.name.startsWith("session-")) pref++;
+						else if (re.test(s.name)) {
+							bare++;
+							if (checked < 5 && typeof zlib.zstdDecompressSync === "function") {
+								checked++;
+								try {
+									const h = JSON.parse(zlib.zstdDecompressSync(readFileSync(join(SESSIONS, ws.name, s.name, "session.v4.jsonl.zstd"))).toString("utf8").split("\n")[0]);
+									if (h.origin === "subagent" || (Number.isFinite(h.delegationDepth) && h.delegationDepth > 0)) bareSub++;
+								} catch { /* 单头读失败不计 */ }
+							}
+						}
+					}
+				} catch { /* 单 ws 读失败跳过 */ }
+			}
+			ok(pref > 0, "主会话(session- 前缀)目录可入索引(" + pref + " 个)");
+			if (bare > 0) {
+				ok(checked > 0 && bareSub === checked, "抽检裸 uuid 目录全部为 subagent 头(" + bareSub + "/" + checked + " 命中)");
+				console.log("INFO 裸 uuid 子会话目录 " + bare + " 个已可入索引(v4.3.11 修复前=0, 门控活体恢复)");
+			} else console.log("SKIP 裸 uuid 抽检(本机暂无子会话目录)");
+		}
+	}
+}
 
 /* ── 4. client 序列化往返断言 ── */
 ok(client.includes("subagentPolicy"), "面板状态字段在位");
