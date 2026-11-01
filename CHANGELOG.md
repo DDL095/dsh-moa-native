@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.3.12 (2026-11-02)
+
+Hotfix: failure notices inside the aggregator context no longer leak provider identity.
+
+- **Why**: the `[reference: failed]` block carried sanitized-but-identity-bearing error text — endpoint URLs, provider hostnames, vendor-specific error phrasing. A failing route could thus reveal which provider/model family it was, bypassing the v24 anonymization; identical failure classes also produced different text (an infra-state side channel).
+- **Fix**: new `sanitizeErrForModel` maps failure text to fixed category buckets ("(该路网络故障)" / "(该路被限流)" / "(该路鉴权失败)" …) — zero endpoints, URLs or vendor words, byte-stable per class. The trace/console side keeps the fuller `sanitizeErr` (credentials redacted, endpoints kept) for diagnosis.
+- **Scope**: early stopgap from the model-face stability workstream (design doc §四 v3.9); wholesale removal of failure shells and the zero-interpolation mechanism header still land with the rhythm layer.
+- **Regression**: new verify-v4312.mjs (bucket mapping, zero-leak probes, wiring counts, version pin); verify-v21/v24 extraction lists extended; full local suite 8/8 green.
+
 ## 4.3.11 (2026-11-01)
 
 Hotfix: the subagent gating feature (v27) never actually applied to real subagent sessions — now it does.

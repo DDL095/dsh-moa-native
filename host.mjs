@@ -866,6 +866,23 @@ function sanitizeErr(e) {
 	if (s.length > 120) s = s.slice(0, 120) + "…";
 	return s;
 }
+/* [§四 v3.9 / v4.3.12 提前止血] 模型面失败文本脱身份: sanitizeErr 只脱凭证不脱端点/供应商——
+ * 失败错误原文(fetch failed https://…/HTTP 429 from <host>/ECONNRESET+URL)可携带 provider 身份
+ * 入 aggregator 上下文 = v24 匿名化的现役旁路。此函数=归类桶: 同类失败→逐桶固定文案(字节稳定,
+ * 消灭「按错误措辞差异泄露基建状态」轴), 零端点/URL/供应商词。trace 侧(:258/:272)仍用 sanitizeErr
+ * (脱凭证+保端点)供诊断; 整块移除+机制段零插值归节律层序2(TIERED §四, golden 锚定终态)。 */
+function sanitizeErrForModel(e) {
+	const s = String(e || "unknown");
+	if (/REF_DEADLINE|STREAM_IDLE|CHUNK_IDLE|单路总超时/i.test(s)) return "(该路超时或无输出中断)";
+	if (/HTTP 5\d\d|\bSERVER:/i.test(s)) return "(该路服务端错误)";
+	if (/HTTP 429|\brate.?limit|限流/i.test(s)) return "(该路被限流)";
+	if (/HTTP 40[13]|E401|auth|鉴权|api[_-]?key|API key/i.test(s)) return "(该路鉴权失败)";
+	if (/HTTP 4\d\d|\bCLIENT:/i.test(s)) return "(该路请求被拒)";
+	if (/ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|network|fetch failed|terminated|TIMEOUT|STREAM_CLOSED|TRANSPORT/i.test(s)) return "(该路网络故障)";
+	if (/EMPTY_RESPONSE/i.test(s)) return "(该路空输出)";
+	if (/MALFORMED_RESPONSE/i.test(s)) return "(该路输出不可解析)";
+	return "(该路失败)";
+}
 /* x18 v21 P0-1: 行首[ 转全角——refs 正文/错误文本无法伪造块头/机制段头 */
 function sanitizeBlockText(t) {
 	return String(t || "").replace(/(^|\n)(\s*)\[(?![/)])/g, "$1$2［");
@@ -900,7 +917,7 @@ function guidanceBlock(results, mode, aggInj) {
 		}
 	}
 	/* v24: 失败块不带名、统一置尾(不占头部位置也不泄露哪路失败; 真名由 traceRefDone 记录在 refs 明细) */
-	for (const r of failed) { parts.push("[reference: failed]" + "\n" + sanitizeBlockText(sanitizeErr(r.err))); }
+	for (const r of failed) { parts.push("[reference: failed]" + "\n" + sanitizeBlockText(sanitizeErrForModel(r.err))); }
 	const degrade = failed.length ? "; 本轮 " + ok.length + "/" + results.length + " 路成功(其余失败)" : "";
 	const anonNote = ok.length > 1 ? "(标号与显示顺序均与任何模型身份无关)" : "";
 	/* v24-P3 输出侧禁令已于同日用户裁决删除(原句"第一人称独立作答不提机制词"):
