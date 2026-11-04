@@ -56,17 +56,18 @@ ok(host.includes("subagentGateCounts"), "every_n 计数表在位");
 ok(host.includes('"passthrough"'), "passthrough 通道在位");
 ok(host.includes("pol.mode === \"full\"") || host.includes("pol.mode === 'full'") || /pol\.mode === "full"/.test(host), "full 旧形态保留");
 ok(host.includes("options.purpose) return true"), "purpose 辅助调用不消耗计数(先判)");
-ok(host.includes("[MoA 预运行参考]"), "机制段改预运行框架");
-ok(host.includes("把它们当作你自己的多份草稿来核对与超越"), "草稿核对句在位");
-ok(!host.includes("[MoA 参考输入]") && !host.includes("[MoA 参考意见] 以下来自"), "旧机制段措辞已退役");
-ok(host.includes("唯一执行者"), "唯一执行者声明在位");
+ok(host.includes("[预演记录]"), "机制段改预运行框架(v4.4.0: 模型面去 MoA 框架词, 块头同步去 reference)");
+ok(host.includes("对照它们核对自己的判断, 再超越它们作答"), "预演核对超越句在位(v3.9 零插值措辞; 2026-11-04 预演记录框架)");
+ok(!host.includes("[MoA 参考输入]") && !host.includes("[MoA 参考意见] 以下来自") && !host.includes("以下来自 "), "旧机制段措辞已退役(含插值形态「以下来自 N 路」)");
+ok(host.includes("const MECH_F = ") && host.includes("const MECH_R = "), "机制段常量 MECH_F/MECH_R 在位(v3.9 编译期零插值, 唯一执行者句随常量化退役)");
 
 /* ── 3.5 §三十 v4.3.11 回归: 会话目录双形态索引(裸 uuid 子会话漏索引实锤修复) ──
  * 2026-11-01 实锤: DSH 0.2.1-rc.x 子会话目录为裸 uuid(头 origin:'subagent'/delegationDepth≥1
  * 完好在档), 旧 wsIndexBuild 只收 session- 前缀 → wsOf(子会话)恒 null → sessionOriginOf
  * fail-open 判 main 并永久缓存 → v27 门控对真实子会话 100% 失效(每步全量扇 refs)。 */
-ok(/startsWith\("session-"\) \|\| BARE_SESSION_DIR\.test\(s\.name\)/.test(host), "wsIndexBuild 过滤器双形态(session- 前缀 + 裸 uuid)");
-ok(/const BARE_SESSION_DIR = \/\^\[0-9a-f\]\{8\}-\[0-9a-f\]\{4\}/.test(host), "裸 uuid 精确正则在位(防误收非会话目录)");
+ok(/function isSessionDirContent\(base\) \{[\s\S]*?session\.v4\.jsonl\.zstd/.test(host), "wsIndexBuild 内容判定在位(前置⑩: 目录含 session 文件即索引, 免疫目录名第三形态)");
+ok(/s\.isDirectory\(\) && isSessionDirContent\(join\(SESSIONS_DIR, ws\.name, s\.name\)\)/.test(host), "索引判定调用内容谓词(v4.3.11 双名形白名单退役为统计对照)");
+ok(/const BARE_SESSION_DIR = \/\^\[0-9a-f\]\{8\}-\[0-9a-f\]\{4\}/.test(host), "裸 uuid 精确正则保留(统计/replay 对照用)");
 
 /* ── 3.6 真实会话树复演(识别链首次真实数据验证; sessions 目录缺失=SKIP, 发布仓可移植) ── */
 {

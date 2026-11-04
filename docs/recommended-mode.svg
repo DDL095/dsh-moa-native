@@ -7,7 +7,7 @@
       <path d="M0 0 L10 5 L0 10 z" fill="#8fa3c8"/>
     </marker>
     <style>
-      .box { fill:#1b2432; stroke:#3a4a63; rx:10; }
+      .box { fill:#1b2432; stroke:#3a4a63; }
       .t  { fill:#e6ecf5; font-size:14px; font-weight:700; }
       .s  { fill:#9fb0c8; font-size:10.5px; }
       .w  { fill:#c8d6ea; font-size:11.5px; }
@@ -17,24 +17,28 @@
     </style>
   </defs>
 
+  <!-- 整幅不透明底板: 缺此则标题(浅色字)在白底页签上不可见(2026-11-04 实测); 底板自身不透明 ⇒ 白底/黑底页签都可读 -->
+  <rect x="0" y="0" width="980" height="620" fill="#141b26"/>
+  <rect x="0.5" y="0.5" width="979" height="619" fill="none" stroke="#2c3a52"/>
+
   <text x="30" y="34" class="t">推荐模式速览 — F 镜像 · 多模型空白 ref · 单一 agg · 平行预案纪律</text>
   <text x="30" y="52" class="s">refs=你本人的提前预演草稿(空白注入=零指令纯续写) · aggregator=唯一执行者 · 会话历史零污染</text>
 
   <!-- 用户消息 -->
-  <rect x="30" y="80" width="170" height="64" class="box"/>
+  <rect x="30" y="80" width="170" height="64" class="box" rx="10"/>
   <text x="46" y="106" class="w">用户消息</text>
   <text x="46" y="124" class="s">(常驻 F 模式会话)</text>
   <path class="f" d="M200 112 H252"/>
 
   <!-- F 镜像分发 -->
-  <rect x="254" y="72" width="200" height="86" class="box"/>
+  <rect x="254" y="72" width="200" height="86" class="box" rx="10"/>
   <text x="270" y="96" class="w">F·全量镜像分发</text>
   <text x="270" y="114" class="s">三路看到与 agg 完全同构的</text>
   <text x="270" y="130" class="s">上下文(system+工具面+历史)</text>
   <text x="270" y="148" class="v">KV 前缀缓存同享, 成本≈一路</text>
 
   <!-- 三路 refs -->
-  <rect x="30" y="196" width="424" height="128" class="box"/>
+  <rect x="30" y="196" width="424" height="128" class="box" rx="10"/>
   <text x="46" y="220" class="w">三路异构模型 ref(qwen / glm / minimax…各家 flash 档)</text>
   <text x="46" y="242" class="k">注入 = __blank__(空白·零指令)</text>
   <text x="46" y="260" class="w">各路「作为你本人」直接续写当前任务 → 平行草稿</text>
@@ -44,7 +48,7 @@
   <path class="f" d="M242 324 V372"/>
 
   <!-- guidance -->
-  <rect x="30" y="374" width="424" height="118" class="box"/>
+  <rect x="30" y="374" width="424" height="118" class="box" rx="10"/>
   <text x="46" y="398" class="w">guidance 组装(匿名标号+随机置换)</text>
   <text x="46" y="418" class="s">机制段(v27 预运行框架): 「以下相当于你本人的提前预演…</text>
   <text x="46" y="434" class="s">你是唯一执行者, 把它们当作你自己的多份草稿来核对与超越」</text>
@@ -53,7 +57,7 @@
   <path class="f" d="M454 433 H506"/>
 
   <!-- aggregator -->
-  <rect x="508" y="196" width="442" height="296" class="box"/>
+  <rect x="508" y="196" width="442" height="296" class="box" rx="10"/>
   <text x="524" y="222" class="w">单一 aggregator(你的主模型, 唯一执行者)</text>
   <text x="524" y="246" class="w">① 读草稿: 多数共识=高置信区, 分歧处=需亲自裁决区</text>
   <text x="524" y="268" class="w">② 核对: 草稿中的「已执行/结果」一律非事实, 须自行验证</text>
@@ -68,7 +72,7 @@
   <text x="524" y="478" class="s">本推荐模式=进阶档: 更少指令干扰, 更强家族信号</text>
 
   <!-- 为什么推荐 -->
-  <rect x="30" y="520" width="920" height="76" class="box"/>
+  <rect x="30" y="520" width="920" height="76" class="box" rx="10"/>
   <text x="46" y="544" class="k">为什么推荐这个组合</text>
   <text x="46" y="566" class="s">空白注入=把「多模型想说什么」完全交给模型差异, 消除提示词干扰; F 镜像=零信息差+缓存最优(91-99%); 平行预案纪律与预运行框架天然同构(草稿即预演);</text>
   <text x="46" y="584" class="s">单 agg 保持回答的单一声音与责任归属; 3-4 路即边际收益拐点, 更多路只添成本与 guidance 膨胀。</text>

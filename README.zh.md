@@ -34,10 +34,23 @@
 **F 镜像 + 3-4 路异构空白 ref + 单一 aggregator + 平行预案纪律**——即上图速览：
 
 - refs 全部用 `__blank__` 空白注入（零指令纯续写=纯模型家族差异，无 persona 干扰）；
-- agg 注入选 `agg_forrefsblank`（平行预案纪律：多数一致方向高权重、分歧处独立判断、一切行动亲自执行）；
+- agg 注入选 `agg_forrefsblank`（平行预案纪律：与你判断一致处更可参考、分歧处由你独立裁决、一切行动亲自执行）；
 - 出厂 `default` 保持 Hermes 对齐（默认注入的评审式 refs）——新手从 default 开始，熟悉后切推荐组合。
 
 完整架构逐部件逐参数详解见 [architecture.svg](docs/architecture.svg)。
+
+## 节拍模式（v4.4.0）
+
+**重模型每 *m* 步定调，flash 每 *n* 步巡检，其余步骤复用上一拍——缓存有效时零成本（缓存失效则按巡检阵容复燃兜底）。**
+
+![节拍模式](docs/tiered-rhythm.svg)
+
+- **cadence 是第四档**——`user_turn`（每用户轮一次，最省）、`per_iteration`（每步）、`every_n×N`（扇出后跳 N 步再算，周期 = N+1 步）、`tiered`（本节节拍）；
+- **两类角色、两种周期**：*定调拍*问重模型（`@max` / `@xhigh`）「方向对不对」——每 *m* 步一次；*巡检拍*问 flash refs「执行有没有漂」——每 *n* 步一次；
+- **非拍步即冻结**：复用最近一拍的 guidance，零 refs 调用成本；
+- **一拍一事**：某步恰逢定调 + 巡检重叠时，只发定调拍（定调压制当位巡检）；
+- **阵容落点**：重模型放 `cadence_tiered.steering`，flash 放 `cadence_tiered.patrol`（省略 = 沿用 `refs`）；节拍档下配方自己的 `refs` 只是巡检回落池；
+- **模型看不到节律本身**：拍位/拍型/失败/规模只存在于宿主侧（trace + 面板），注入文本零拍位词汇、零失败明示、零计数（块数仍是一阶投影，设计文档 §四 已诚实列明）。
 
 ## 安装
 
@@ -88,7 +101,7 @@ dsh plugin --profile web add dsh-moa-native
   "aggregator": "provider-c/main-model@max",
   "aggInjection": "agg_forrefsblank",       // 平行预案纪律(推荐组合); 缺省 agg_default
   "mode": "F",                              // F 全量镜像 | R 裁剪视图
-  "cadence": "user_turn",                   // user_turn | per_iteration | {every_n: 2}
+  "cadence": "user_turn",                   // user_turn | per_iteration | {every_n: 2} | "tiered"(见上节)
   "subagent_policy": "passthrough",         // 子会话门控: passthrough | {every_n: 5} | full
   "injections": { "critic": "你的首要职责是审视……" },
   "recipes": { "my-lineup": { "refs": ["..."], "aggregator": "...", "mode": "F" } },

@@ -41,10 +41,23 @@ user message ──► refs consulted in parallel (private drafts, mutually unaw
 ![Recommended mode](docs/recommended-mode.svg)
 
 - Every ref uses the `__blank__` injection (zero instruction, pure continuation — pure model-family signal, no persona noise);
-- The aggregator uses `agg_forrefsblank` (majority direction gets high weight, disagreements judged independently, all actions executed by the aggregator itself);
+- The aggregator uses `agg_forrefsblank` (candidate action plans: where a draft agrees with your own judgement it is worth more weight, disagreements are judged independently, all actions executed by the aggregator itself);
 - The factory `default` stays Hermes-aligned (review-style refs with the default injection) — start there, switch to the recommended combo once familiar.
 
 Full part-by-part, parameter-by-parameter walkthrough: [architecture.svg](docs/architecture.svg).
+
+## Tiered rhythm (v4.4.0)
+
+**Heavy models steer every *m* steps, flash models patrol every *n* steps, and every other step reuses the last beat — free while that beat is still cached (a cache miss refills with the patrol roster).**
+
+![Tiered rhythm](docs/tiered-rhythm.svg)
+
+- **Cadence is the fourth tier** — `user_turn` (once per user turn, cheapest), `per_iteration` (every step), `every_n×N` (skip N steps after each fan-out, so the period is N+1 steps), and `tiered` (the rhythm below);
+- **Two roles, two periods**: the *steering* beat asks heavy models (`@max` / `@xhigh`) whether the direction is still right — every *m* steps; the *patrol* beat asks flash refs whether the execution has drifted — every *n* steps;
+- **Non-beat steps are frozen**: the previous beat's guidance is reused verbatim, at zero ref cost;
+- **One beat, one job**: when a step is due for both, steering wins and the patrol beat is suppressed;
+- **Where the rosters live**: `cadence_tiered.steering` (the heavy models) and `cadence_tiered.patrol` (the flash models — omit it to keep patrol following `refs`); under the tiered cadence a recipe's own `refs` are just the patrol fallback pool;
+- **The model never sees the rhythm itself**: beat vocabulary, failures and scale stay host-side (trace + console only) — the injected text carries no beat words, no failure notices and no counts (block *count* remains a first-order proxy, as the design doc states honestly).
 
 ## Install
 
@@ -95,7 +108,7 @@ Comparison with the MoA paper (arXiv:2406.04692), Hermes `/moa`, and community d
   "aggregator": "provider-c/main-model@max",
   "aggInjection": "agg_forrefsblank",       // parallel-plan discipline (recommended); default agg_default
   "mode": "F",                              // F full mirror | R trimmed view
-  "cadence": "user_turn",                   // user_turn | per_iteration | {every_n: 2}
+  "cadence": "user_turn",                   // user_turn | per_iteration | {every_n: 2} | "tiered"(see above)
   "subagent_policy": "passthrough",         // subagent gating: passthrough | {every_n: 5} | full
   "injections": { "critic": "Your first duty is to scrutinize…" },
   "recipes": { "my-lineup": { "refs": ["..."], "aggregator": "...", "mode": "F" } },

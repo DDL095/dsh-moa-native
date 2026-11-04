@@ -1,0 +1,169 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 1030" font-family="'Segoe UI','Microsoft YaHei',sans-serif">
+  <title>moa-native 节拍模式(tiered cadence) — 重模型定调 · 轻模型巡检 · 非拍步冻结</title>
+  <desc>节拍档一图流: ①拍位判定短路链 ②节律带(前30拍落点, n=4 巡检 / m=12 定调) ③两类拍的职能与阵容归属 ④成本账三档对照(user_turn / 跳3步 / 节拍) ⑤配置落点 ⑥可见性边界(用户看得见, 模型看不见)</desc>
+
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#8fa3c8"/>
+    </marker>
+    <style>
+      .box { fill:#1b2432; stroke:#3a4a63; }
+      .t  { fill:#e6ecf5; font-size:13px; font-weight:600; }
+      .ti { fill:#f0f4fa; font-size:16px; font-weight:700; }
+      .st { fill:#8fa3c8; font-size:11px; }
+      .s  { fill:#9fb0c8; font-size:10.5px; }
+      .k  { fill:#e8b64c; font-size:10.5px; font-weight:600; }
+      .v  { fill:#7fd4a8; font-size:10.5px; }
+      .w  { fill:#c8d6ea; font-size:10.5px; }
+      .cs { fill:#3a2f16; stroke:#e8b64c; stroke-width:1.4; }
+      .cp { fill:#1e2a44; stroke:#5b8def; stroke-width:1.4; }
+      .cn { fill:#202836; stroke:#38445c; stroke-width:1; }
+      .gs { fill:#e8b64c; font-size:12px; font-weight:700; }
+      .gp { fill:#7fa8f5; font-size:12px; font-weight:700; }
+      .gn { fill:#6b7c96; font-size:12px; }
+      .sn { fill:#6b7c96; font-size:9px; }
+    </style>
+  </defs>
+
+  <!-- 整幅不透明底板: 缺此则标题(浅色字)在白底页签上不可见(2026-11-04 实测); 底板自身不透明 ⇒ 白底/黑底页签都可读 -->
+  <rect x="0" y="0" width="1180" height="1030" fill="#141b26"/>
+  <rect x="0.5" y="0.5" width="1179" height="1029" fill="none" stroke="#2c3a52"/>
+
+  <!-- ═══════════ 标题 ═══════════ -->
+  <text x="40" y="36" class="ti">moa-native 节拍模式(tiered cadence) — 重模型定调 · 轻模型巡检 · 非拍步冻结</text>
+  <text x="40" y="58" class="st">refs 拆成两类角色按不同周期轮转 · 非拍步冻结复用最近一拍(零成本) · 编排词汇只宿主侧可见, 不进 guidance</text>
+
+  <!-- ═══════════ ① 拍位判定链 ═══════════ -->
+  <rect x="40" y="86" width="340" height="250" class="box" rx="10"/>
+  <text x="56" y="110" class="t">① 拍位判定(短路链, 防并列双发)</text>
+  <text x="56" y="134" class="w">s = 1 → initial 拍</text>
+  <text x="72" y="150" class="s">(steering 定调 / patrol / off)</text>
+  <text x="56" y="172" class="w">s % m == 0 → 定调拍 ●</text>
+  <text x="72" y="188" class="s">(压制当位巡检 — 一拍一事)</text>
+  <text x="56" y="210" class="w">s % n == 0 → 巡检拍 ○</text>
+  <text x="56" y="230" class="w">否则 → 冻结步 ·(复用缓存)</text>
+  <text x="56" y="256" class="k">anchor=1(仅配 m:null):</text>
+  <text x="56" y="272" class="s">巡检判定改 (s-1)%n == 0</text>
+  <text x="56" y="288" class="s">(复刻旧「主会话跳N」落点 1,1+N)</text>
+  <text x="56" y="312" class="v">n=null → 关闭巡检; m=null → 无定调</text>
+
+  <!-- ═══════════ ② 节律带 ═══════════ -->
+  <rect x="400" y="86" width="740" height="250" class="box" rx="10"/>
+  <text x="420" y="110" class="t">② 节律带 — 每一步落在哪个拍?</text>
+  <text x="420" y="130" class="gs">● 定调拍</text>
+  <text x="530" y="130" class="gp">○ 巡检拍</text>
+  <text x="630" y="130" class="gn">· 冻结步</text>
+  <text x="740" y="130" class="s">虚线框 = 该步巡检位被定调拍压制(一拍一事)</text>
+
+  <!-- 拍位格: s=1 定调 / s=4,8,16,20,28 巡检 / s=12,24 定调 / 其余冻结 -->
+  <rect x="420" y="148" width="21" height="28" class="cs"/><text x="430" y="167" class="gs" text-anchor="middle">●</text><text x="430" y="192" class="sn" text-anchor="middle">1</text>
+  <rect x="443" y="148" width="21" height="28" class="cn"/><text x="453" y="167" class="gn" text-anchor="middle">·</text><text x="453" y="192" class="sn" text-anchor="middle">2</text>
+  <rect x="466" y="148" width="21" height="28" class="cn"/><text x="476" y="167" class="gn" text-anchor="middle">·</text><text x="476" y="192" class="sn" text-anchor="middle">3</text>
+  <rect x="489" y="148" width="21" height="28" class="cp"/><text x="499" y="167" class="gp" text-anchor="middle">○</text><text x="499" y="192" class="sn" text-anchor="middle">4</text>
+  <rect x="512" y="148" width="21" height="28" class="cn"/><text x="522" y="167" class="gn" text-anchor="middle">·</text><text x="522" y="192" class="sn" text-anchor="middle">5</text>
+  <rect x="535" y="148" width="21" height="28" class="cn"/><text x="545" y="167" class="gn" text-anchor="middle">·</text><text x="545" y="192" class="sn" text-anchor="middle">6</text>
+  <rect x="558" y="148" width="21" height="28" class="cn"/><text x="568" y="167" class="gn" text-anchor="middle">·</text><text x="568" y="192" class="sn" text-anchor="middle">7</text>
+  <rect x="581" y="148" width="21" height="28" class="cp"/><text x="591" y="167" class="gp" text-anchor="middle">○</text><text x="591" y="192" class="sn" text-anchor="middle">8</text>
+  <rect x="604" y="148" width="21" height="28" class="cn"/><text x="614" y="167" class="gn" text-anchor="middle">·</text><text x="614" y="192" class="sn" text-anchor="middle">9</text>
+  <rect x="627" y="148" width="21" height="28" class="cn"/><text x="637" y="167" class="gn" text-anchor="middle">·</text><text x="637" y="192" class="sn" text-anchor="middle">10</text>
+  <rect x="650" y="148" width="21" height="28" class="cn"/><text x="660" y="167" class="gn" text-anchor="middle">·</text><text x="660" y="192" class="sn" text-anchor="middle">11</text>
+  <rect x="673" y="148" width="21" height="28" class="cs" stroke-dasharray="3 2"/><text x="683" y="167" class="gs" text-anchor="middle">●</text><text x="683" y="192" class="sn" text-anchor="middle">12</text>
+  <rect x="696" y="148" width="21" height="28" class="cn"/><text x="706" y="167" class="gn" text-anchor="middle">·</text><text x="706" y="192" class="sn" text-anchor="middle">13</text>
+  <rect x="719" y="148" width="21" height="28" class="cn"/><text x="729" y="167" class="gn" text-anchor="middle">·</text><text x="729" y="192" class="sn" text-anchor="middle">14</text>
+  <rect x="742" y="148" width="21" height="28" class="cn"/><text x="752" y="167" class="gn" text-anchor="middle">·</text><text x="752" y="192" class="sn" text-anchor="middle">15</text>
+  <rect x="765" y="148" width="21" height="28" class="cp"/><text x="775" y="167" class="gp" text-anchor="middle">○</text><text x="775" y="192" class="sn" text-anchor="middle">16</text>
+  <rect x="788" y="148" width="21" height="28" class="cn"/><text x="798" y="167" class="gn" text-anchor="middle">·</text><text x="798" y="192" class="sn" text-anchor="middle">17</text>
+  <rect x="811" y="148" width="21" height="28" class="cn"/><text x="821" y="167" class="gn" text-anchor="middle">·</text><text x="821" y="192" class="sn" text-anchor="middle">18</text>
+  <rect x="834" y="148" width="21" height="28" class="cn"/><text x="844" y="167" class="gn" text-anchor="middle">·</text><text x="844" y="192" class="sn" text-anchor="middle">19</text>
+  <rect x="857" y="148" width="21" height="28" class="cp"/><text x="867" y="167" class="gp" text-anchor="middle">○</text><text x="867" y="192" class="sn" text-anchor="middle">20</text>
+  <rect x="880" y="148" width="21" height="28" class="cn"/><text x="890" y="167" class="gn" text-anchor="middle">·</text><text x="890" y="192" class="sn" text-anchor="middle">21</text>
+  <rect x="903" y="148" width="21" height="28" class="cn"/><text x="913" y="167" class="gn" text-anchor="middle">·</text><text x="913" y="192" class="sn" text-anchor="middle">22</text>
+  <rect x="926" y="148" width="21" height="28" class="cn"/><text x="936" y="167" class="gn" text-anchor="middle">·</text><text x="936" y="192" class="sn" text-anchor="middle">23</text>
+  <rect x="949" y="148" width="21" height="28" class="cs" stroke-dasharray="3 2"/><text x="959" y="167" class="gs" text-anchor="middle">●</text><text x="959" y="192" class="sn" text-anchor="middle">24</text>
+  <rect x="972" y="148" width="21" height="28" class="cn"/><text x="982" y="167" class="gn" text-anchor="middle">·</text><text x="982" y="192" class="sn" text-anchor="middle">25</text>
+  <rect x="995" y="148" width="21" height="28" class="cn"/><text x="1005" y="167" class="gn" text-anchor="middle">·</text><text x="1005" y="192" class="sn" text-anchor="middle">26</text>
+  <rect x="1018" y="148" width="21" height="28" class="cn"/><text x="1028" y="167" class="gn" text-anchor="middle">·</text><text x="1028" y="192" class="sn" text-anchor="middle">27</text>
+  <rect x="1041" y="148" width="21" height="28" class="cp"/><text x="1051" y="167" class="gp" text-anchor="middle">○</text><text x="1051" y="192" class="sn" text-anchor="middle">28</text>
+  <rect x="1064" y="148" width="21" height="28" class="cn"/><text x="1074" y="167" class="gn" text-anchor="middle">·</text><text x="1074" y="192" class="sn" text-anchor="middle">29</text>
+  <rect x="1087" y="148" width="21" height="28" class="cn"/><text x="1097" y="167" class="gn" text-anchor="middle">·</text><text x="1097" y="192" class="sn" text-anchor="middle">30</text>
+
+  <path d="M420 202 V209 H694 V202" fill="none" stroke="#5b8def" stroke-width="1.3"/>
+  <text x="420" y="228" class="s">谐波 m=12: 稳态每 12 步 = 1 定调 + 2 巡检 + 9 冻结(s12 巡检位被定调压制)</text>
+  <text x="420" y="248" class="w">一拍一事: 某步恰逢定调+巡检重叠 → 只发定调拍(定调压制当位巡检)</text>
+  <text x="420" y="268" class="w">非拍步 = 冻结复用最近一拍的 guidance(零成本, 不重跑 refs)</text>
+  <text x="420" y="288" class="w">拍位 ≠ none → 无条件重建 guidance(绕过缓存); 缓存 miss = 巡检阵容复燃兜底</text>
+  <text x="420" y="312" class="k">定调拍 = steering 阵容 · 巡检拍 = patrol 阵容(缺省沿用 refs)</text>
+  <text x="420" y="328" class="s">模型对此无感知: 拍/拍型/失败/规模 只存在于宿主侧 trace 与面板, 注入文本零痕迹</text>
+
+  <!-- ═══════════ ③ 职能与阵容归属 ═══════════ -->
+  <rect x="40" y="356" width="520" height="370" class="box" rx="10"/>
+  <text x="56" y="380" class="t">③ 两类拍的职能与阵容归属</text>
+  <text x="56" y="404" class="k">定调拍(steering) ● 每 m 步</text>
+  <text x="56" y="422" class="w">重模型 · 思考顶格(@max / @xhigh)</text>
+  <text x="56" y="438" class="s">管「方向对不对」— kimi / glm / qwen-max 类</text>
+  <text x="56" y="456" class="v">落点: cadence_tiered.steering(空 = 回落 refs)</text>
+  <text x="56" y="482" class="k">巡检拍(patrol) ○ 每 n 步</text>
+  <text x="56" y="500" class="w">flash 多路 · 管「执行有没有漂」</text>
+  <text x="56" y="516" class="s">缺省 = 沿用 refs(即现役阵容原样平移)</text>
+  <text x="56" y="534" class="v">落点: cadence_tiered.patrol(省略 = 沿用 refs)</text>
+  <text x="56" y="556" class="s">配方自己的 refs 在节拍档下 = 巡检回落池</text>
+  <text x="56" y="584" class="k">两套阵容互不干扰</text>
+  <text x="56" y="602" class="w">▸ steering 缺席的日子 patrol 照常跑</text>
+  <text x="56" y="620" class="w">▸ 节拍档不改变 aggregator: agg 每步照常执行</text>
+  <text x="56" y="638" class="s">  (成本差异全在 refs 侧, agg 侧无差别)</text>
+
+  <!-- ═══════════ ④ 成本账(三档对照) ═══════════ -->
+  <rect x="580" y="356" width="560" height="370" class="box" rx="10"/>
+  <text x="596" y="380" class="t">④ 成本账 — 三档对照(同一用户轮内 · 缓存命中正常时 · 30 步窗口)</text>
+  <text x="596" y="402" class="s">现役: refs = 2 路轻(qwen3.8-flash + deepseek-v4.1-flash) · patrol 沿用 refs</text>
+  <text x="596" y="418" class="s">steering = 4 路(glm-5.3@max / k3.1-pro@max / qwen3.8-max / M3.1-Flash)</text>
+  <text x="596" y="434" class="s">前三行 = 同阵容换档位(只隔离「档位」一个变量, 池都用「节拍MOA」的 refs)</text>
+  <text x="596" y="452" class="w">▸ user_turn — 扇出 1 次(s1) · refs 2 路轻</text>
+  <text x="616" y="470" class="s">→ 轻 2 / 重 0 · 29 步复用 · 本窗口内无中途复评</text>
+  <text x="596" y="494" class="w">▸ 跳 3 步(n=3) — 扇出 8 次(1,5,9,13,17,21,25,29) · refs 2 路轻</text>
+  <text x="616" y="512" class="s">→ 轻 16 / 重 0 · 22 步复用 · 本窗口内无中途复评</text>
+  <text x="616" y="528" class="s">(n=3 = 跳过 3 个复用步 ⇒ 周期 4 步; 引擎判据 entryCount≥n)</text>
+  <text x="596" y="550" class="w">▸ 节拍(n=4,m=12) — 扇出 8 次(定调 3 + 巡检 5) · 定调 4 路 / 巡检 2 路轻</text>
+  <text x="616" y="568" class="s">→ 轻 10 / 重 12 · 22 步冻结 · 方向复评 = 每 12 步</text>
+  <text x="596" y="592" class="k">▸ 路次: 节拍 22 &gt; 跳 3 步 16 &gt; user_turn 2 —— 节拍不是最省路次的一档</text>
+  <text x="596" y="612" class="w">▸ 它买的是: ①重模型每 12 步才问一次(不是每 4 步)</text>
+  <text x="616" y="630" class="w">②方向定期复评 · 定调是唯一会思考很久的路</text>
+  <text x="596" y="650" class="v">▸ 直接比你的现役两个配方(各自阵容, 不隔离变量):</text>
+  <text x="616" y="668" class="v">「间隔两轮MOA」跳3步·4 路全轻 = 32 路次(全轻)</text>
+  <text x="616" y="686" class="v">「节拍MOA」= 22 路次(轻 10 + 重 12) ⇒ 轻路次 −69%, 但多出 12 次重模型</text>
+  <text x="596" y="704" class="s">▸ 路次 ≠ 花费: 重模型单路远贵于 flash, 净账取决于重/轻价差</text>
+  <text x="596" y="720" class="s">▸ 扇出走 Promise.all: 任一路卡住拖整轮到该路 deadline</text>
+
+  <!-- ⑤⑥ 整体下移 60px: ③④ 加高到 370 后底边=726, 下移留出与 ③④ 的间隙(等效于改十几行坐标, 但不手改 y 值) -->
+  <g transform="translate(0,60)">
+  <!-- ═══════════ ⑤ 配置落点 ═══════════ -->
+  <rect x="40" y="686" width="560" height="250" class="box" rx="10"/>
+  <text x="56" y="710" class="t">⑤ 配置落点 — 外置独立键, 切回旧档零丢失</text>
+  <text x="56" y="736" class="k">cadence: "tiered"    (顶层或配方级, 任一激活即生效)</text>
+  <text x="56" y="758" class="k">cadence_tiered: {</text>
+  <text x="72" y="778" class="w">"initial": "steering",</text>
+  <text x="72" y="796" class="w">"steering": ["…重模型@max"],</text>
+  <text x="72" y="814" class="w">"patrol":   ["…flash"],   // 省略 = 沿用 refs</text>
+  <text x="72" y="832" class="w">"n": 4, "m": 12            // 巡检每 n 步 / 定调每 m 步</text>
+  <text x="56" y="850" class="k">}</text>
+  <text x="56" y="874" class="s">参数表全局共享: 配方选 tiered = 引用本组全局参数</text>
+  <text x="56" y="892" class="s">顶层 cadence 保持 user_turn 亦可(配方级激活)</text>
+  <text x="56" y="910" class="s">配方无参数表 → 按缺省 4/12 点亮并 warn</text>
+  <text x="56" y="928" class="v">谐波 m=k·n 最优: 4/12(默认)·5/15·5/10·3/12·6/12·2/6</text>
+
+  <!-- ═══════════ ⑥ 可见性边界 ═══════════ -->
+  <rect x="620" y="686" width="520" height="250" class="box" rx="10"/>
+  <text x="636" y="710" class="t">⑥ 可见性边界 — 用户看得见, 模型看不见</text>
+  <text x="636" y="734" class="k">宿主面可见(用户可查):</text>
+  <text x="636" y="752" class="w">▸ dock 横幅徽标 ●定调 / ○巡检 / ·冻结</text>
+  <text x="636" y="770" class="w">▸ 轨迹面板每轮列出拍位</text>
+  <text x="636" y="788" class="w">▸ AGG: 聚合器名(refs 跑完前即知)</text>
+  <text x="636" y="812" class="k">模型面零痕迹(三不可见):</text>
+  <text x="636" y="830" class="w">▸ 拍位/拍型词汇不入 guidance</text>
+  <text x="636" y="848" class="w">▸ 失败路整块不入(无壳)</text>
+  <text x="636" y="866" class="w">▸ 规模计数不入(机制段=编译期常量)</text>
+  <text x="636" y="890" class="v">编排只改「谁在何时被调用 × 什么 effort」</text>
+  <text x="636" y="910" class="s">子会话门控 beat{lane,every}: 每 N 步单拍单 lane</text>
+  <text x="636" y="928" class="s">replica: 子会话按自身节律跑完整引擎</text>
+  </g>
+</svg>

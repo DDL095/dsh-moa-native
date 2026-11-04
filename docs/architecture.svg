@@ -7,7 +7,7 @@
       <path d="M0 0 L10 5 L0 10 z" fill="#8fa3c8"/>
     </marker>
     <style>
-      .box { fill:#1b2432; stroke:#3a4a63; rx:10; }
+      .box { fill:#1b2432; stroke:#3a4a63; }
       .hd { fill:#141b26; stroke:#2c3a52; }
       .t  { fill:#e6ecf5; font-size:13px; font-weight:600; }
       .s  { fill:#9fb0c8; font-size:10.5px; }
@@ -21,12 +21,16 @@
     </style>
   </defs>
 
+  <!-- 整幅不透明底板: 缺此则标题(浅色字)在白底页签上不可见(2026-11-04 实测); 底板自身不透明 ⇒ 白底/黑底页签都可读 -->
+  <rect x="0" y="0" width="1440" height="1100" fill="#141b26"/>
+  <rect x="0.5" y="0.5" width="1439" height="1099" fill="none" stroke="#2c3a52"/>
+
   <!-- ═══════════ 标题 ═══════════ -->
   <text x="40" y="38" class="ti">moa-native 架构详解 — generation-time fusion(每轮生成时融合)</text>
   <text x="40" y="58" class="st">refs(参考路)= 你自己的提前预演草稿 · aggregator(行动路)= 唯一执行者 · 一切在 llm/stream 拦截器内完成, 会话历史零污染</text>
 
   <!-- ═══════════ ① 触发层 ═══════════ -->
-  <rect x="40" y="86" width="230" height="150" class="box"/>
+  <rect x="40" y="86" width="230" height="150" class="box" rx="10"/>
   <text x="56" y="110" class="t">① 触发(三形态等价)</text>
   <text x="56" y="132" class="w">▸ 常驻 default: provider 页选</text>
   <text x="56" y="148" class="w">  moa-native · default(整会话)</text>
@@ -36,7 +40,7 @@
   <text x="56" y="220" class="w">  覆盖模式(前缀剥除, 模型不可见)</text>
 
   <!-- ② 事件链 -->
-  <rect x="330" y="86" width="250" height="150" class="box"/>
+  <rect x="330" y="86" width="250" height="150" class="box" rx="10"/>
   <text x="346" y="110" class="t">② 宿主三事件链</text>
   <text x="346" y="132" class="w">▸ agent/pre-step: 捕 /moa 前缀</text>
   <text x="346" y="150" class="w">▸ agent/request: 路由改写为伪路由</text>
@@ -47,7 +51,7 @@
   <text x="346" y="228" class="s">  → GUI 模型选择器天然可见可选</text>
 
   <!-- ③ 门控 -->
-  <rect x="640" y="86" width="270" height="150" class="box"/>
+  <rect x="640" y="86" width="270" height="150" class="box" rx="10"/>
   <text x="656" y="110" class="t">③ 分流门控(先判, 零成本)</text>
   <text x="656" y="132" class="w">▸ purpose 辅助调用(compaction/标题)</text>
   <text x="656" y="146" class="s">  → 直转 agg 真实路由, 不消耗计数</text>
@@ -58,7 +62,7 @@
   <text x="656" y="228" class="v">  full=旧形态同权全扇</text>
 
   <!-- ④ 缓存层 -->
-  <rect x="970" y="86" width="250" height="150" class="box"/>
+  <rect x="970" y="86" width="250" height="150" class="box" rx="10"/>
   <text x="986" y="110" class="t">④ 扇出缓存(指纹命中)</text>
   <text x="986" y="132" class="w">▸ 键=turn 指纹+rosterKey</text>
   <text x="986" y="146" class="s">  (配方+阵容+agg, 防异配方串味)</text>
@@ -68,7 +72,7 @@
   <text x="986" y="220" class="k">TTL 10min · 容量 32 条 LRU</text>
 
   <!-- ⑤ refs 扇出 -->
-  <rect x="40" y="290" width="470" height="196" class="box"/>
+  <rect x="40" y="290" width="470" height="196" class="box" rx="10"/>
   <text x="56" y="314" class="t">⑤ refs 并行扇出(N 路, 互不知晓)</text>
   <text x="56" y="338" class="w">R·裁剪视图: Hermes 式(system 丢/工具结果折叠/4k 预算) — 小窗省钱</text>
   <text x="56" y="356" class="w">F·全量镜像: 与 agg 完全同构(system+工具定义+完整历史) — 零信息差</text>
@@ -80,9 +84,9 @@
   <text x="56" y="466" class="k">▸ 多路并行 = 家族多样性红利(见③组合效果)</text>
 
   <!-- ⑥ guidance 组装 -->
-  <rect x="570" y="290" width="370" height="196" class="box"/>
+  <rect x="570" y="290" width="370" height="196" class="box" rx="10"/>
   <text x="586" y="314" class="t">⑥ guidance 组装(防污染三件套)</text>
-  <text x="586" y="338" class="w">▸ 匿名标号: 块头 [reference·#A·性质], 零模型真名</text>
+  <text x="586" y="338" class="w">▸ 匿名标号: 块头 [草稿·#A·性质], 零模型真名</text>
   <text x="586" y="352" class="s">  (真名映射只进 trace 账本, 第三方可审计)</text>
   <text x="586" y="372" class="w">▸ Fisher-Yates 置换显示序(防位置偏差锚定)</text>
   <text x="586" y="392" class="w">▸ 预运行框架(v27): 「相当于你本人的提前预演,</text>
@@ -92,7 +96,7 @@
   <text x="586" y="466" class="s">  (结构定界, v21 盲审修订)</text>
 
   <!-- ⑦ aggregator -->
-  <rect x="1000" y="290" width="400" height="196" class="box"/>
+  <rect x="1000" y="290" width="400" height="196" class="box" rx="10"/>
   <text x="1016" y="314" class="t">⑦ aggregator 执行(唯一行动者)</text>
   <text x="1016" y="338" class="w">▸ 真实路由 provider/model@effort 直转</text>
   <text x="1016" y="352" class="s">  (resolveCallConfig 补 provider 方言)</text>
@@ -121,13 +125,13 @@
   <text x="56" y="680" class="w">▸ trace:false 一键全关</text>
 
   <!-- ═══════════ 参数速查 ═══════════ -->
-  <rect x="560" y="580" width="840" height="470" class="box"/>
+  <rect x="560" y="580" width="840" height="470" class="box" rx="10"/>
   <text x="576" y="606" class="t">参数速查 — 每个参数控制什么</text>
   <text x="576" y="632" class="k">mode</text>          <text x="700" y="632" class="w">R 裁剪(省)/F 镜像(质); 缺省按配方, 兜底 F(实测最优)</text>
   <text x="576" y="652" class="k">refs[]</text>        <text x="700" y="652" class="w">参考路阵容; 元素="prov/model@effort" 或 {model,injection,includeReasoning,kind}</text>
   <text x="576" y="672" class="k">aggregator</text>    <text x="700" y="672" class="w">行动路(你真正想用的主模型); refs 只是它的预演草稿</text>
-  <text x="576" y="692" class="k">cadence</text>       <text x="700" y="692" class="w">重算频率: user_turn 同轮一次(最省) / per_iteration 每步 / 跳N步折中</text>
-  <text x="576" y="712" class="k">subagent_policy</text><text x="700" y="712" class="w">子会话门控: passthrough 直转 agg(默认) / every_n:N / full; 主会话不受影响</text>
+  <text x="576" y="692" class="k">cadence</text>       <text x="700" y="692" class="w">重算频率: user_turn 同轮一次(最省) / per_iteration 每步 / 跳N步折中 / tiered 节拍(定调+巡检+冻结)</text>
+  <text x="576" y="712" class="k">subagent_policy</text><text x="700" y="712" class="w">子会话门控: passthrough 直转 agg(默认) / every_n:N / full / beat{lane,every} / replica; 主会话不受影响</text>
   <text x="576" y="732" class="k">settle_ms</text>     <text x="700" y="732" class="w">打断后 refs 已产出意见的落袋宽限(默认 2000ms)</text>
   <text x="576" y="752" class="k">reference_max_tokens</text> <text x="700" y="752" class="w">单路 ref 输出上限; thinking 模型建议留空(防正文被思考挤光)</text>
   <text x="576" y="772" class="k">ref_overrides</text> <text x="700" y="772" class="w">按 label 逐槽覆盖 effort/max_tokens(如只给重路加预算)</text>
