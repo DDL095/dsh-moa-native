@@ -125,6 +125,44 @@ const CACHE_TTL_MS = 10 * 60 * 1000; // guidance 缓存 TTL(turn 指纹命中下
 const NEG_CACHE_TTL_MS = 60 * 1000; // [盲审 Fix7] 全败负缓存短 TTL: 60s 内同 turn 不重跑(故障喘息窗口)
 const CACHE_MAX = 32; // fanout 缓存容量上限(超限清最老)
 
+/* ── guidance 定点插入(v4.5.0 缓存友好化): 把 guidance 钉在拍点位置, 而非尾随 ──
+ * 尾随形态 = [拍点历史][后续新增][G] ⇒ provider 的缓存断点落在末条(即 G 本身), 而下一轮
+ *   G 不在同一位置 ⇒ 与上一轮缓存的公共前缀只到 [拍点历史], G 每步重新付一遍
+ *   (实测冻结步 agg 未缓存 p50 与 |G| 同量级)。
+ * 定点形态 = [拍点历史][G][后续新增] ⇒ [拍点历史][G] 逐字节稳定 ⇒ 整段命中, 每步只付增量。
+ *   附带收益: 模型面顺序变为「拍点预演 → 其后实际执行」, 消解"方案落后于其执行"的困惑。
+ * 护栏(逐条实现, 缺一即失效):
+ *   ①绝不改 options.messages(只造新数组) ⇒ refs 镜像仍是干净历史, 无回声自激回路;
+ *   ②锚点按消息 id 定位——surface 的 replace 会移动节点下标, 用下标必漂移;
+ *   ③不插在 assistant(tool_use) 与其 tool_result 之间(Anthropic 系要求 tool_result
+ *     紧跟 tool_use, 中间插一条 user 消息会被拒);
+ *   ④锚点缺失/位置不安全 ⇒ 回落尾随(安全退化, 收益归零, 行为与改造前一致)。 */
+function guidanceAnchorInsert(messages, anchorId, guidanceText) {
+	const tail = { role: "user", content: [{ type: "text", text: guidanceText }] };
+	if (!anchorId) return { messages: [...messages, tail], anchored: false, reason: "no-anchor" };
+	const idx = messages.findIndex((m) => m && m.id === anchorId);
+	if (idx < 0) return { messages: [...messages, tail], anchored: false, reason: "anchor-missing" };
+	const at = messages[idx];
+	if (at && at.role === "assistant" && Array.isArray(at.toolCalls) && at.toolCalls.length) {
+		return { messages: [...messages, tail], anchored: false, reason: "anchor-has-tool_use" };
+	}
+	/* 插入点之后若还有 tool_result ⇒ 打断连续 tool_result 序列 ⇒ 不安全(回落)。
+	 * (Anthropic 系适配器按"连续 toolResult 消息"收集, 见 pi-ai anthropic-messages.js:1198) */
+	const nxt = messages[idx + 1];
+	if (nxt && (nxt.role === "tool" || nxt.role === "toolResult")) {
+		return { messages: [...messages, tail], anchored: false, reason: "next-is-tool-result" };
+	}
+	const out = messages.slice();
+	out.splice(idx + 1, 0, tail);
+	return { messages: out, anchored: true, reason: "ok" };
+}
+/** 拍点锚点 id = 当次请求消息数组末条的消息 id(拍点历史的最后一条)。 */
+function guidanceAnchorIdOf(messages) {
+	if (!Array.isArray(messages) || !messages.length) return null;
+	const last = messages[messages.length - 1];
+	return (last && typeof last.id === "string" && last.id) ? last.id : null;
+}
+
 
 // ── M4.4 运行轨迹观测(内存 ring; fail-safe: 埋点异常绝不影响融合主链路) ──
 // 用户需求(2026-10-24): 直观看 refs 各路进度/耗时/advisory 原文——补齐 generation-time fusion
@@ -319,6 +357,43 @@ function traceFinish(entry, status) {
 }
 
 const MOA_PREFIX = /^\/moa([RF]?)(?![\w-])/; // /moa(默认档)/moaR(裁剪)/moaF(全量 mirror); 后不得紧跟词字符
+
+// ── 0.2.2-rc.1 迁移: 伪路由作为 selection(A′ 方案) ────────────────────────────
+// 背景: 0.2.2-rc.1 起, 宿主在 step 准备期固定本步模型(dsh-agent-loop/lib/index.js:671
+// `const selection = this.model.current()`), 并在 agent/request 瀑布后**硬断言**
+// 「proposedConfig 的 provider/model/reasoningEffort 不得与 selection 不同」
+// (同文件 :1000-1001) ⇒ 旧写法「在 agent/request 里改写路由」在 rc.1 会直接抛错崩 turn。
+//
+// A′ 的要点: **伪路由不再是"在请求瀑布里改出来的东西", 而是"本 step 的 selection 本身"**。
+//   · 落点 = agent/inbox/claimed(agent-loop:106-109, 由 claim() 在 :670 发射),
+//     早于 :671 读 selection ⇒ select() 写入后 :671 立刻读到。
+//   · 宿主断言比对的是 proposedConfig vs selection ⇒ 两者同为伪路由 ⇒ 天然相等 ⇒ 不抛错。
+//   · llm/stream 拦截器判据(:1804 `options.provider !== PSEUDO`)一行不改 —— 因为
+//     request.provider 来自 selection.provider(agent-loop:1069) ⇒ 仍是 PSEUDO。
+//   · 伪 provider 名仍出现在请求层 ⇒ usage-ledger 的 SYNTH_PROVIDERS 防双计(:26)
+//     与 per-user-models 的伪路由放行(:21/:69/:406)都不破。
+//
+// 双轨: 0.2.1-rc.3 无 agent.model(实测: rc.3 的 dsh-agent/lib/types/model-selection.js
+//   只导出 installModelSelection, 无 AgentModel 类; rc.3 agent-loop 里 this.model 零命中)
+//   ⇒ 用**能力检测**而非版本号判据(中间版 rc.4/rc.5 也会误判字符串)。
+//   rc.3 轨 = 保持原「agent/request 改写」逻辑逐字不动 ⇒ 零回归。
+//
+// 「粘住」对策: request/header 事件会把匹配的 pending 退休, 但 lastUsed 保留该路由
+//   (dsh-agent/lib/types/model-selection.js:56-59) ⇒ 伪路由会成为 lastUsed ⇒ 后续普通
+//   step 的 current() 读到 lastUsed = 伪路由 ⇒ **粘住**。故每个 step 前都要把 selection
+//   显式设回真路由(见 inbox/claimed 监听器)。
+//
+// 配方语义: selection.model 承载 standard/ref/full/配方名; llm/stream 侧的配方识别
+//   (:1810 `cfg.recipes[options.model]`) 原样成立 ⇒ GUI 选配方与 /moa 前缀两场景都不破。
+function agentHasSelect(agent) {
+	return !!agent && typeof agent.model?.select === "function";
+}
+/** 该 agent 当前的真实路由(用于把 selection 从伪路由设回真路由)。 */
+function trueRouteOf(agent) {
+	const o = agent?.options;
+	if (!o || !o.provider || !o.model) return null;
+	return { provider: o.provider, model: o.model };
+}
 
 // ── M4 配方(完整预设包)──
 // 2026-10-24 15:25 用户裁定: **无内置配方**——provider 页只有 standard(默认直配=四路 flash
@@ -553,6 +628,7 @@ function loadConfig() {
 		tiered: tieredOn ? tieredParams : null, /* §二 v3.9: 激活态节拍参数(顶层 cadence==="tiered" 点亮; null=非节拍档) */
 		promptLang, /* v4.4.0: F 侧内置提示词语言(zh 缺省) */
 		tieredParams, /* v4.4.0 验证期修复: 节拍参数表(cadence_tiered 在盘即解析, 与激活位解耦; 配方级 cadence="tiered" 激活消费) */
+		guidanceAnchor: j.guidance_anchor !== false, /* v4.5.0: guidance 定点插入(钉在拍点)——缓存友好化核心特性, 对【全部 cadence 档】生效(user_turn/per_iteration/every_n/tiered; 注入点在 fresh/else 分支之外, 与拍位无关)。缺省开; 仅显式 guidance_anchor:false 才回尾随(改造前行为, 会让 guidance 每步重付)。实测收益见 docs/GUIDANCE-ANCHOR-DESIGN.md §九 */
 		subagentPolicy, /* §二十六 v27 */
 		guard: !(j.guard && typeof j.guard === "object" && j.guard.enabled === false), /* §五 序1 退化守卫总开关(缺省开; enabled:false=全链路旁路, 账本仍记 warn 类) */
 		inputModalities, /* §二十八 v4.3.7: 视觉模态顶层广告终裁(喂伪模型派生); §二十九: modelModalities 影子层已移除 */
@@ -1679,6 +1755,9 @@ function apply(ctx) {
 	const pendingMoa = new WeakMap(); // Agent → turn(标记该 turn 是 MoA 轮)
 
 	// ① agent/pre-step: /moa 前缀检测+剥除(唯一能看/改 messages 的点)
+	// ⚠ 0.2.2-rc.1 轨: 路由不再在这里或 agent/request 里改, 而是**把伪路由写成 selection**。
+	//   本监听器保留两职: (a) 剥除 /moa 前缀; (b) 打标 pendingMoa(供 rc.3 轨的 agent/request 用)。
+	//   rc.1 轨真正的路由设置在下面的 agent/inbox/claimed 监听器(更早, 早于 selection 固化)。
 	const offPreStep = ctx.on("agent/pre-step", async (payload, next) => {
 		try {
 			const msgs = payload && payload.messages;
@@ -1728,10 +1807,60 @@ function apply(ctx) {
 		return next();
 	});
 
+	// ── ①-b agent/inbox/claimed: 0.2.2-rc.1 轨的伪路由落点 ────────────────
+	// 官方 agent-loop 的 claim() 在 preStep 内发射本事件(:106-109), 且**早于**同函数
+	// 里 :671 的 `const selection = this.model.current()` ⇒ 在此同步写 selection, :671 立刻读到。
+	// 载荷 = {message, turn, agent}: agent 由 dsh-agent 的 agentEvents.fused() 注入(:359-362)。
+	// ⚠ 无重入风险: 本事件走 dispatch.emit(纯事件派发, 不碰 session.append) ⇒
+	//   不在 dsh-session 的 `appending` 守卫区间内(dsh-session/lib/index.js:1580/1591/1601/1603)
+	//   ⇒ 监听器内调 agent.model.select() → session.append('model/selection') 不会被拦。
+	// ⚠ 投影同步更新: session.append 同步 commit(dsh-session:1536-1545, :1599/:1601) ⇒
+	//   session/event 观察者同步跑 ⇒ session-projection 的 eager drive(:79-81)同步 fold
+	//   ⇒ modelSelection 投影的 pending 立即更新 ⇒ :671 的 current() 读到新值。
+	const offClaimed = ctx.on("agent/inbox/claimed", (payload) => {
+		try {
+			const agent = payload && payload.agent;
+			if (!agentHasSelect(agent)) return; // rc.3 轨: 无 agent.model ⇒ 走下面的 agent/request 旧逻辑
+			const m = payload.message;
+			if (!m || m.role !== "user") return;
+			const raw = typeof m.content === "string" ? m.content : flattenText(m.content);
+			if (!raw || !raw.trimStart().match(MOA_PREFIX)) {
+				// ⚠ 非 MoA 轮: 把 selection 从可能残留的伪路由**设回真路由**(防「粘住」)。
+				//   粘住机制: request/header 退休 matching pending 后 lastUsed 仍留伪路由
+				//   (dsh-agent/lib/types/model-selection.js:56-59 + :93-96) ⇒ 后续 step 会读到伪路由。
+				const tr = trueRouteOf(agent);
+				if (tr) {
+					const cur = agent.model.current();
+					if (cur && cur.provider !== tr.provider) {
+						agent.model.select(tr);
+						console.log("[moa-native] rc.1 轨: selection 复位回真路由 " + tr.provider + "/" + tr.model);
+					}
+				}
+				return;
+			}
+			const mt = MOA_PREFIX.exec(raw.trimStart());
+			if (!mt) return;
+			const mode = mt[1] === "R" ? "R" : mt[1] === "F" ? "F" : null; // null=按面板默认
+			const pseudoModel = mode === "R" ? "ref" : mode === "F" ? "full" : "standard";
+			// ⚠ 配方识别: GUI 常驻选配方时, 用户选的配方名才是 options.model ⇒ :1810 的
+			//   `cfg.recipes[options.model]` 命中该配方。本行写 standard/ref/full 时 R=null
+			//   ⇒ 回落顶层 refs/aggregator(与今天 /moa 前缀路径完全一致)。
+			//   ⚠ 不写 reasoningEffort: 伪模型未声明 reasoning 能力(dsh-llm 校验链), 带 effort 会炸。
+			agent.model.select({ provider: PSEUDO, model: pseudoModel });
+			console.log("[moa-native] rc.1 轨: selection ← 伪路由 " + PSEUDO + "/" + pseudoModel + " (turn " + payload.turn + ", mode=" + (mode || "默认") + ")");
+		} catch (e) {
+			console.error("[moa-native] inbox/claimed 异常(不阻断): " + errText(e));
+		}
+	});
+
 	// ② agent/request: 查标记改路由(同 turn 每次请求都改; llm/stream 侧靠指纹缓存区分)
+	// ⚠ 0.2.2-rc.1 轨: 宿主在 prepareRequest 后硬断言「proposedConfig 不得与 selection 不同」
+	//   (dsh-agent-loop/lib/index.js:1000-1001) ⇒ 本段在 rc.1 会抛错崩 turn。
+	//   ⇒ rc.1 轨跳过改写(路由已由 inbox/claimed 写成 selection); rc.3 轨保持原逻辑逐字不动。
 	const offRequest = ctx.on("agent/request", async (payload, next) => {
 		const base = await next();
 		try {
+			if (agentHasSelect(payload.agent)) return base; // rc.1 轨: 不改路由(改则崩 turn)
 			const mark = pendingMoa.get(payload.agent);
 			if (!mark || mark.turn !== payload.turn) return base;
 			if (!base || typeof base !== "object") return base;
@@ -1850,6 +1979,10 @@ function apply(ctx) {
 				 * "AGG: <模型>" 而非"等待 refs"; aggPlan 是"计划", 终态仍由 traceAggStart/Done 写 entry.agg。 */
 				const tr = tracePush(cfg, { kind: "fanout", mode, recipe: recipeUsed || null, sessionId: options.sessionId || null, status: "running", beat: b || null, lane: lane || laneOverride || null, aggPlan: { provider: agg.provider, model: agg.model, effort: agg.effort || "" } });
 				let guidance;
+				/* v4.5.0 定点插入: 本步的锚点 id。
+				 * 真扇出时=拍点末条消息 id(随缓存条目一起存); 冻结复用时=从缓存条目取回。
+				 * 不可在注入时现算"当次末条"——冻结步的末条已漂移到本步新内容, 等价于尾随, 收益归零。 */
+				let guidanceAnchorId = null;
 				if (fresh && !dueEvery) {
 					cached.entryCount = (cached.entryCount || 0) + 1;
 					let staleNow = false; /* 验证期修复(2026-11-03 用户实锤「第0次」): 声明提升到分支顶——原 else 块内声明使外层 trace 引用炸 ReferenceError 被 try 吞, tr.cached 永不赋值 → UI 恒显第0次 */
@@ -1858,6 +1991,7 @@ function apply(ctx) {
 						guidance = null;
 					} else {
 						guidance = cached.text;
+						guidanceAnchorId = cached.anchorId || null;
 						/* v3.9 §四: STALE 标注迁宿主侧——不再进注入文本(模型面第四波动轴消灭);
 						 * 防重放语义由 MECH 机制段常量句承载(「已执行/结果一律不是事实记录」), 且 agg
 						 * 本就可见含工具结果的完整历史, 重放风险双兜底。宿主侧: trace stale 位+debug 日志+序3 UI。 */
@@ -1936,14 +2070,35 @@ function apply(ctx) {
 					}
 					fanoutCache.set(fp.key, ok === 0
 						? { negative: true, ts: Date.now(), entryCount: 0 }
-						: { text: guidance, ts: Date.now(), entryCount: 0 }); /* v25.2: msgCount 通道退役(STALE 判据回归注入感知版) */
+						: { text: guidance, ts: Date.now(), entryCount: 0, anchorId: guidanceAnchorIdOf(options.messages) }); /* v25.2: msgCount 通道退役(STALE 判据回归注入感知版); v4.5.0: 缓存条目携带拍点锚点(真扇出时的拍点末条消息 id), 冻结步据此把 guidance 插回原位 */
 					job.done(true);
 					} /* 守卫排除非空分支闭合 */
 				}
-				// 改写路由; guidance 非空时注入为独立尾随 user message(#112358 铁律: 绝不 merge)
-				const newMessages = guidance
-					? [...options.messages, { role: "user", content: [{ type: "text", text: guidance }] }]
-					: options.messages;
+				/* v4.5.0 guidance 定点插入(缓存友好化): guidance 钉在拍点锚点之后, 而非尾随。
+				 * 尾随形态下断点落在末条(=guidance 本身), 下一轮 guidance 不在同一位置 ⇒
+				 * 公共前缀只到拍点历史 ⇒ guidance 每步重付。定点形态 [拍点历史][G][新增]
+				 * ⇒ [拍点历史][G] 逐字节稳定 ⇒ 整段命中, 每步只付增量。
+				 * 护栏: ①不改 options.messages(只造新数组) ⇒ refs 镜像仍干净;
+				 *       ②锚点按消息 id 定位(replace 会移动下标); ③不插在 tool_use 与其
+				 *       tool_result 之间; ④锚点不可用 ⇒ 回落尾随(安全退化)。 */
+				let newMessages = options.messages;
+				if (guidance) {
+					if (E.guidanceAnchor) {
+						/* 锚点来源: 冻结复用步=缓存条目自带的 anchorId(真扇出时的拍点末条 id);
+						 * 真扇出步=本拍末条 id(此刻即拍点)。二者都不可现算"当次末条"——
+						 * 冻结步的末条已漂到本步新内容, 那样插等于尾随, 收益归零。 */
+						const anchorId = guidanceAnchorId || guidanceAnchorIdOf(options.messages);
+						const ins = guidanceAnchorInsert(options.messages, anchorId, guidance);
+						newMessages = ins.messages;
+						if (ins.anchored) {
+							if (E.debug) log(E, "info", "guidance 定点插入(锚点 " + String(anchorId).slice(0, 8) + "… 之后)");
+						} else if (E.debug) {
+							log(E, "info", "guidance 定点插入回落尾随(" + ins.reason + ")");
+						}
+					} else {
+						newMessages = [...options.messages, { role: "user", content: [{ type: "text", text: guidance }] }];
+					}
+				}
 				const fw = { ...options, provider: agg.provider, model: agg.model, ...(agg.effort ? { reasoningEffort: agg.effort } : {}), messages: newMessages };
 				/* M4.4 轨迹: aggregator 起跑→流耗尽回填(输出=会话消息本身, 只记 chars 不重复存全文) */
 				traceAggStart(tr, agg.provider, agg.model, agg.effort);
@@ -1996,7 +2151,7 @@ function apply(ctx) {
 	});
 
 	ctx.effect(() => () => {
-		for (const off of [offPreStep, offRequest, offStream]) { try { if (typeof off === "function") off(); else if (off && typeof off.dispose === "function") off.dispose(); } catch { /* noop */ } }
+		for (const off of [offPreStep, offClaimed, offRequest, offStream]) { try { if (typeof off === "function") off(); else if (off && typeof off.dispose === "function") off.dispose(); } catch { /* noop */ } }
 		try { if (offProbe && typeof offProbe.dispose === "function") offProbe.dispose(); } catch { /* noop */ }
 		try { if (adapterDispose) adapterDispose(); } catch { /* noop */ }
 	}, name + ".register");

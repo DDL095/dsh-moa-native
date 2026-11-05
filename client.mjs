@@ -93,6 +93,7 @@ window.__ModuleLoader__.load({
 						/* §二十六 v27: subagent 门控("passthrough"|"full"|数字串=every_n) */
 						subagentPolicy: (() => { const p = raw.subagent_policy; if (p === "full") return "full"; if (p === "replica") return "replica"; if (p && typeof p === "object" && p.mode === "beat" && (p.lane === "patrol" || p.lane === "steering")) return "beat:" + p.lane + ":" + Math.floor(p.every || 4); if (p && typeof p === "object" && Number.isFinite(p.every_n)) return String(Math.floor(p.every_n)); return "passthrough"; })(),
 						promptLang: raw.prompt_lang === "en" ? "en" : "zh", /* v4.4.0 中英切换: F 侧内置提示词语言(自建模块=自由文本不受辖) */
+					guidanceAnchor: raw.guidance_anchor !== false, /* v4.5.0: guidance 定点插入(缺省开; 仅显式 false 才关——与 host 缺省语义同源) */
 						/* §十一 v15: 用户自建注入文本模块(名→文本); 内置默认🔒/空白🔒运行时合成不落盘 */
 						injections: (() => { const o = {}; if (raw.injections && typeof raw.injections === "object") for (const [k, v] of Object.entries(raw.injections)) if (typeof v === "string" && v.trim()) o[k] = v; return o; })(),
 						aggInjections: (() => { const o = {}; if (raw.aggInjections && typeof raw.aggInjections === "object") for (const [k, v] of Object.entries(raw.aggInjections)) if (typeof v === "string" && v.trim()) o[k] = v; return o; })(),
@@ -282,6 +283,7 @@ window.__ModuleLoader__.load({
 						/* §二十六 v27: subagent 门控序列化("passthrough"=省略保最小 diff) */
 						subagent_policy: edit.subagentPolicy === "full" ? "full" : edit.subagentPolicy === "replica" ? "replica" : (/^beat:(patrol|steering):\d+$/.test(String(edit.subagentPolicy)) ? (() => { const seg = String(edit.subagentPolicy).split(":"); return { mode: "beat", lane: seg[1], every: Math.max(1, Math.min(50, parseInt(seg[2], 10))) }; })() : (/^\d+$/.test(String(edit.subagentPolicy)) ? { every_n: Math.max(1, Math.min(50, parseInt(edit.subagentPolicy, 10))) } : "passthrough")), /* v3.9 序2: passthrough 显式落盘(修面板无法切回既有 bug——undefined 被 delete 使 host 保留旧值) + beat/replica 三态 */
 						prompt_lang: edit.promptLang === "en" ? "en" : "zh", /* v4.4.0: 显式落盘(zh 也写); R 侧 Hermes 原文不受辖 */
+					guidance_anchor: edit.guidanceAnchor !== false, /* v4.5.0: 显式落盘(true/false 都写; host 浅合并下省略=保留旧值, 会导致关不掉) */
 					};
 					if (!patch.mode) delete patch.mode;
 					let tieredSkipNote = "";
@@ -431,7 +433,9 @@ window.__ModuleLoader__.load({
 						})() : null,
 							React.createElement("label", null, " settle_ms ", React.createElement("input", { value: tgt.settle_ms, placeholder: "2000", onChange: (e) => setTgtRaw({ settle_ms: e.target.value }), style: Object.assign({}, inputStyle, { width: "66px" }) })),
 							React.createElement("label", null, " ref max_tokens ", React.createElement("input", { value: tgt.reference_max_tokens, placeholder: "(默认)", onChange: (e) => setTgtRaw({ reference_max_tokens: e.target.value }), style: Object.assign({}, inputStyle, { width: "76px" }) })),
-							React.createElement("label", null, " ", React.createElement("input", { type: "checkbox", checked: tgt.debug, onChange: (e) => setTgtRaw({ debug: e.target.checked }) }), " debug")),
+							React.createElement("label", null, " ", React.createElement("input", { type: "checkbox", checked: tgt.debug, onChange: (e) => setTgtRaw({ debug: e.target.checked }) }), " debug"),
+						React.createElement("label", { title: "guidance 定点插入(v4.5.0, 推荐保持开启): 把预演记录钉在【产出它的那一步】的位置, 而非每步末尾追加。 为什么重要: provider 缓存是「最长公共前缀」匹配 —— 尾随形态下预演记录落在请求末尾, 下一轮不在同一位置 ⇒ 公共前缀只到拍点历史 ⇒ 预演记录每步重新计费; 定点形态 [拍点历史][预演] 逐字节稳定 ⇒ 整段命中, 每步只付新增量。 实测(2026-11-05 冻结步对齐 trace): 尾随期未缓存均值 3,308 tok → 定点期 1,931 tok(同会话 -36%), 命中率 p50 99.15%。 对【全部 cadence 档】生效: user_turn / per_iteration / every_n / tiered。 关闭=回到改造前行为(预演记录每步重付, 且模型每步都收到一份尾随预演, 读起来像最新指令)。", style: { marginLeft: "10px", color: (edit.guidanceAnchor === false ? "var(--dsh-error, #c46)" : "inherit"), fontWeight: (edit.guidanceAnchor === false ? "600" : "normal") } },
+							React.createElement("input", { type: "checkbox", checked: edit.guidanceAnchor !== false, onChange: (e) => upd({ guidanceAnchor: e.target.checked }) }), edit.guidanceAnchor === false ? " ⚠ guidance 定点插入(钉在拍点)【已关闭 — 预演记录将每步重新计费, 且模型每步都收到一份尾随预演(读起来像最新指令)。建议开启】" : " ✓ guidance 定点插入(钉在拍点)【已开启·推荐 — 预演记录钉在产出它的那一步, 冻结期间前缀缓存整段命中, 每步只付新增量; 对 user_turn/per_iteration/every_n/tiered 全部 cadence 档生效】")),
 												React.createElement("div", { style: hintStyle }, "cadence=重算频率(user_turn 同轮一次最省/per_iteration 每步/跳N步=扇出后跳 N 步再扇, user 输入轮天然重置/tiered·节拍=重模型每 m 步定调+flash 每 n 步巡检+非拍步冻结复用); settle_ms=打断后落袋宽限; max_tokens=参考路上限(thinking 模型留空); debug=详细日志。"),
 						(() => {
 							if (pv !== "agg") return null;

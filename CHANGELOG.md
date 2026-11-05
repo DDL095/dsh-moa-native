@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.5.0 (2026-11-05)
+
+The cache-friendly release: guidance is pinned where it was produced, and the memory anchor no longer rewrites the system prompt.
+
+- **Guidance pinned at the beat (the core change)**: the aggregator's rehearsal record used to be appended to the *end* of every request. Provider caches match on the longest common prefix, so a trailing record is never in the same position twice — the cached prefix only reached the beat history, and the rehearsal record was re-billed on every step. It is now pinned immediately after the message that produced it, so `[beat history][rehearsal]` stays byte-identical across the frozen steps: the whole segment hits the cache and each step pays only for what was added since. The anchor is located by **message id**, never by index (a surface `replace` moves indices). The anchor travels **with the cache entry** — it is recorded on a real fan-out and read back on a frozen reuse; deriving it from the current tail would drift and degenerate into the old trailing form.
+- **Applies to every cadence**: the injection sits outside the fresh/frozen branch, so `user_turn`, `per_iteration`, `every_n`, and `tiered` all benefit. Measured on frozen steps (trace-aligned): trailing era 3,308 uncached tokens on average → pinned era 1,931 (same session, −36%); hit rate p50 99.15%.
+- **On by default**: `guidance_anchor` defaults to **on**; only an explicit `false` returns to the trailing form. The panel exposes the switch next to `debug` with a prominent state line — a red ⚠ with the cost of disabling when it is off, and a ✓ "recommended" note when it is on — so it is not switched off by accident. Host and client share one default rule (`!== false`).
+- **Safeguards** (all asserted): the original message array is never mutated (references keep seeing a clean mirror, so a rehearsal record can never become their input); the record is not inserted between an assistant `tool_use` and its `tool_result` (Anthropic-compatible adapters require them adjacent); and if the anchor is missing or unsafe, the trailing form is used — a safe degradation, never a failure.
+- **Design record**: `docs/GUIDANCE-ANCHOR-DESIGN.md` §九 holds the full story, including the measurement trail and the alternatives that were measured and rejected.
+- **Housekeeping**: the panel switch was added to `docs/INTERFACES.md` (configuration key table) and `GUIDE.md`; `scripts/verify-v45-anchor.mjs` is the behavioural matrix (40 assertions: mechanism / cache / wiring groups).
+
 ## 4.4.0 (2026-11-02)
 
 The rhythm release: tiered beats, degeneration guards, and the three-invisibility model face — the rhythm design doc (TIERED-RHYTHM-DESIGN v3.9) is now fully implemented.
