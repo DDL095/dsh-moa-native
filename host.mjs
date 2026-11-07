@@ -42,7 +42,7 @@ const MODEL_REGISTRY_PATH = join(homedir(), ".dsh", "DSH-MoA-model-registry.json
 const MOA_CONFIG_PATH = join(homedir(), ".dsh", "profiles", "web", "moa.config.json");
 
 // ── Hermes 常量(原文语义照录, 参考 docs/hermes-ref/moa_loop.py) ──
-const REF_TOOL_RESULT_BUDGET = 4000;
+const REF_TOOL_RESULT_BUDGET = 8000; // v4.5.1: R 侧单条工具结果截断预算(4000→8000, 头尾各半保留); 可经 ref_tool_result_budget 覆盖
 const ADVISORY_INSTRUCTION =
 	"[The conversation above is the current state of the task. Give your " +
 	"most intelligent judgement: what is going on, what should happen next, " +
@@ -71,7 +71,7 @@ const REF_PERSONA =
  *   缺省落本常量; 超时类不再盲重试(见 classifyRefErr: 看门狗=本地确定性判死, 重发大概率再超时)。 */
 const CHUNK_IDLE_MS = 240000; // refs 单路活性看门狗: 连续无 chunk 判挂死(moa 同款语义)
 const REF_DEADLINE_MS = 600000; // [盲审 P1] refs 单路总超时: 慢滴流(每 119s 吐一字可无限续命看门狗)拖死整轮的硬上限
-const REF_INPUT_CHAR_BUDGET = 120000; // [铁律3 输入侧] refs 视图总字符预算(约 30-60k token, 覆盖全槽位窗口下限)
+const REF_INPUT_CHAR_BUDGET = 160000; // [铁律3 输入侧] refs 视图总字符预算(约 40-80k token; v4.5.1 由 120000 放宽, 可经 ref_input_char_budget 覆盖——F 全量镜像太贵时的省钱档, 窗口放宽=裁剪更少信息差更小)
 /* ── §五 v3.9 退化守卫(节律化序1, TIERED §5) ── */
 const GUARD_CHECK_STEP = 4096;  // 流内检测步长(双通道合并字符预算: 思考+正文累计达此值即检)
 const GUARD_LEN_WARN = 16000;   // reasoning 长度预算: 仅 warn 不 abort(kimi 合法长思考不可按长度杀)
@@ -388,12 +388,119 @@ const MOA_PREFIX = /^\/moa([RF]?)(?![\w-])/; // /moa(默认档)/moaR(裁剪)/moa
 function agentHasSelect(agent) {
 	return !!agent && typeof agent.model?.select === "function";
 }
-/** 该 agent 当前的真实路由(用于把 selection 从伪路由设回真路由)。 */
-function trueRouteOf(agent) {
-	const o = agent?.options;
-	if (!o || !o.provider || !o.model) return null;
-	return { provider: o.provider, model: o.model };
+/**
+ * 轨道判据 = 能力检测 + **逃生舱覆盖**。
+ *
+ * 默认(auto): 纯能力检测 —— `typeof agent?.model?.select === "function"`。
+ *   覆盖范围已实测六版(0.2.1-rc.3/rc.4/rc.5 = rc.3 轨; 0.2.2-alpha.2/alpha.3/rc.1 = rc.1 轨),
+ *   契约切换点在 **0.2.2-alpha.2**(不是 rc.1) ⇒ 按版本号判轨必错 ⇒ 绝不认版本号。
+ *
+ * 逃生舱(route_track 配置项, 缺省 auto):
+ *   · "selection" = 强制走 rc.1 轨(即便宿主没有 select(), 也按 selection 语义准备; 若宿主
+ *     确实没有 select() 则本轨无法工作 ⇒ 调用点会因 select 不存在而跳过, 行为退化为不干预)。
+ *   · "rewrite"   = 强制走 rc.3 轨(即便宿主有 select(), 也在 agent/request 里改写路由;
+ *     ⚠ 在有硬断言的宿主上**会抛错崩 turn** ⇒ 仅供「宿主行为异常、怀疑断言未生效」时排查用)。
+ *   ⇒ 用途: 能力检测万一误判(或未来宿主改了契约形态), 用户可零改码切换轨道, 而不必等发布新版本。
+ *   ⚠ 与 guidance_anchor 同范式: 缺省自动、显式才覆盖。
+ */
+/**
+ * route_track 的独立热读(mtime 缓存)。
+ *
+ * ⚠ 为什么不直接用 loadConfig(): loadConfig() **无缓存**(每次同步读盘 + 完整解析),
+ *   而 route_track 只在 `agent/inbox/claimed`(每 step)与 `agent/request`(每请求)被读
+ *   ⇒ 走 loadConfig() 会给热路径加两次同步读盘(真实性能回归)。
+ *   ⇒ 这里用 mtime+size 判定的轻量缓存: 只在文件真的变了才重读。
+ *   (对照 model-fallback 的 makeHotReader(3000ms TTL)—— 同一思路。)
+ */
+let routeTrackCache = { at: 0, mtime: 0, size: 0, value: "auto" };
+/* ⚠ 告警标记独立于缓存对象: 缓存对象每次重读都被**整体替换** ⇒ 标记若挂在对象上会丢失
+ *   ⇒ 告警会反复刷(每步一次)⇒ 噪声淹没日志。 */
+const routeTrackWarned = { selectionNoSelect: false };
+function routeTrackCached() {
+	try {
+		const st = statSync(NATIVE_CONFIG_PATH);
+		if (routeTrackCache.at && routeTrackCache.mtime === st.mtimeMs && routeTrackCache.size === st.size) {
+			return routeTrackCache.value;
+		}
+		const j = JSON.parse(readFileSync(NATIVE_CONFIG_PATH, "utf8"));
+		const v = (j && (j.route_track === "selection" || j.route_track === "rewrite")) ? j.route_track : "auto";
+		routeTrackCache = { at: Date.now(), mtime: st.mtimeMs, size: st.size, value: v };
+		return v;
+	} catch {
+		return "auto"; /* 无文件=默认 */
+	}
 }
+/**
+ * 该 agent 该走哪条轨: true = rc.1 轨(selection), false = rc.3 轨(agent/request 改写)。
+ *
+ * ⚠ 强制档的**防炸回落**: route_track="selection" 但宿主没有 select() ⇒ rc.1 轨物理不可工作
+ *   (selection 是这套轨道的唯一写入通道)⇒ 强制等于自杀 ⇒ **回落能力检测**(即 rc.3 轨)。
+ *   route_track="rewrite" 但宿主**有** select() 与硬断言 ⇒ 改写会抛错崩 turn ⇒ 这是用户的
+ *   明确选择(排查用), 不回落, 但每次生效都打 warn 让代价可见。
+ */
+function useSelectionTrack(agent) {
+	const forced = routeTrackCached();
+	if (forced === "selection") {
+		if (agentHasSelect(agent)) return true;
+		/* 宿主无 select() ⇒ rc.1 轨不可工作 ⇒ 回落能力检测(并一次性告警, 标记独立防重刷)。 */
+		if (!routeTrackWarned.selectionNoSelect) {
+			routeTrackWarned.selectionNoSelect = true;
+			console.warn("[moa-native] route_track=selection 但宿主无 agent.model.select() ⇒ 回落自动判据(rc.3 轨)。请检查 DSH 版本。");
+		}
+		return false;
+	}
+	if (forced === "rewrite") {
+		/* rewrite 在有 select() 与硬断言的宿主上会崩 turn ⇒ 一次性告警让代价可见(用户明确选择, 不回落)。 */
+		if (agentHasSelect(agent) && !routeTrackWarned.rewriteAssert) {
+			routeTrackWarned.rewriteAssert = true;
+			console.warn("[moa-native] route_track=rewrite: 宿主存在 selection 硬断言 ⇒ 改写路由会崩 turn(仅排查用)。");
+		}
+		return false;
+	}
+	return agentHasSelect(agent);
+}
+/**
+ * 「粘住」对策的账本: agent → **MoA 轮之前**的 selection(用户的原选择)。
+ *
+ * 粘住机制: request/header 事件把「匹配的 pending」退休, 但 lastUsed 保留该路由
+ *   (dsh-agent/lib/types/model-selection.js:56-59) ⇒ current() = pending ?? lastUsed
+ *   ⇒ 伪路由会成为 lastUsed ⇒ 后续普通 step 仍读到伪路由。
+ *
+ * ⚠ 复位目标不是「某个绝对真路由」, 而是**MoA 轮之前用户自己的选择** —— 因为用户有两种
+ *   正常用法(实测 web-run.log: /moa 前缀 9 次 + GUI 常驻选配方 5275 次「节拍MOA」等):
+ *     ① 普通会话选真路由 + 偶尔 /moa        ⇒ 复位目标是真路由
+ *     ② GUI 常驻选 moa-native/<配方名>      ⇒ 复位目标是**常驻配方**(仍是伪路由!)
+ *   故复位必须回到「MoA 轮之前的选择」, 而非硬编码真路由。
+ *
+ * ⚠ 不用 agent.options 作兜底: 它是创建时快照(dsh-agent-loop:539 赋值后无写入),
+ *   用户改选后即过期; 且 GUI 常驻配方场景下 options **本身就是伪路由**, 用它会破坏常驻语义。
+ * ⚠ 不读 session.snapshotEvents(): rc.1 已标 @deprecated(dsh-session:1448-1452
+ *   "new calls are prohibited") ⇒ 不引入新调用。
+ */
+const preMoaSelection = new WeakMap(); // Agent → MoA 轮之前的 selection
+
+/**
+ * 「本插件自己写进去的伪路由」标记集: Agent → 上一次由本插件 select() 写入的伪模型名。
+ *
+ * 为什么需要它(实测发现的第三种用法, checkpoint 未覆盖):
+ *   生产日志(2026-11-05 18:29)显示当前主用量是 **GUI 常驻配方** ——
+ *   `prepareCall: moa-native/节拍MOA` 持续出现 ⇒ 用户在 provider 页把会话**常驻**选成
+ *   `moa-native/<配方名>`。此时 selection 从一开始就是伪路由(且**不是**本插件写的)。
+ *   若只按「cur.provider === PSEUDO ⇒ 复位」判定, 就会把**用户自己的常驻选择**误当成
+ *   「上一轮 /moa 残留的伪路由」⇒ 复位回 preMoaSelection ⇒ **常驻配方语义被破坏**
+ *   (会话会掉出 MoA 模式, 变成直转 aggregator 或真路由)。
+ *
+ * 判据: 只有「当前伪路由 == 本插件上次写入的那个伪模型名」才是残留 ⇒ 才允许复位。
+ *   · /moa 轮写的是 standard/ref/full ⇒ 复位判据成立。
+ *   · GUI 常驻配方写的是配方名(节拍MOA 等)⇒ 与本插件写入的值不同 ⇒ 不复位, 常驻语义保住。
+ *   · 用户中途从 /moa 的 standard 改选到常驻配方 ⇒ 当前伪路由名 ≠ 本插件写的 ⇒ 也不复位(正确)。
+ *
+ * ⚠ 附带 turn 边界: 复位只在**跨 turn**时做(forced.turn !== 当前 turn)。
+ *   同一 turn 内用户追加消息(如 MoA 跑到一半又补一句)也会触发 claimed(user 消息) ——
+ *   若无 turn 判据, 那里会误复位 ⇒ **中断当前 MoA turn**(rc.3 轨不会: 它的 pendingMoa
+ *   按 turn 匹配, 同 turn 内继续改写为伪路由 ⇒ MoA 继续)。故必须跨 turn 才复位。
+ */
+const moaForcedPseudo = new WeakMap(); // Agent → { model: 本插件写入的伪模型名, turn: 写入时的 turn }
 
 // ── M4 配方(完整预设包)──
 // 2026-10-24 15:25 用户裁定: **无内置配方**——provider 页只有 standard(默认直配=四路 flash
@@ -623,12 +730,16 @@ function loadConfig() {
 		ref_deadline_ms: Number.isFinite(j.ref_deadline_ms) ? Math.max(30000, Math.min(3600000, Math.floor(j.ref_deadline_ms))) : REF_DEADLINE_MS,
 		ref_idle_ms: Number.isFinite(j.ref_idle_ms) ? Math.max(30000, Math.min(3600000, Math.floor(j.ref_idle_ms))) : CHUNK_IDLE_MS,
 		ref_overrides: (j.ref_overrides && typeof j.ref_overrides === "object") ? j.ref_overrides : {},
+		/* v4.5.1: R 侧裁剪预算可配(全局覆盖常量缺省; 仅 R 模式消费, F 全量镜像不受辖) */
+		ref_tool_result_budget: Number.isFinite(j.ref_tool_result_budget) ? Math.max(500, Math.floor(j.ref_tool_result_budget)) : REF_TOOL_RESULT_BUDGET,
+		ref_input_char_budget: Number.isFinite(j.ref_input_char_budget) ? Math.max(4000, Math.floor(j.ref_input_char_budget)) : REF_INPUT_CHAR_BUDGET,
 		settle_ms: Number.isFinite(j.settle_ms) ? Math.max(0, Math.floor(j.settle_ms)) : 2000, // 中断后 settle 窗口(Hermes _REFERENCE_INTERRUPT_SETTLE_S 同款语义)
 		cadence,
 		tiered: tieredOn ? tieredParams : null, /* §二 v3.9: 激活态节拍参数(顶层 cadence==="tiered" 点亮; null=非节拍档) */
 		promptLang, /* v4.4.0: F 侧内置提示词语言(zh 缺省) */
 		tieredParams, /* v4.4.0 验证期修复: 节拍参数表(cadence_tiered 在盘即解析, 与激活位解耦; 配方级 cadence="tiered" 激活消费) */
 		guidanceAnchor: j.guidance_anchor !== false, /* v4.5.0: guidance 定点插入(钉在拍点)——缓存友好化核心特性, 对【全部 cadence 档】生效(user_turn/per_iteration/every_n/tiered; 注入点在 fresh/else 分支之外, 与拍位无关)。缺省开; 仅显式 guidance_anchor:false 才回尾随(改造前行为, 会让 guidance 每步重付)。实测收益见 docs/GUIDANCE-ANCHOR-DESIGN.md §九 */
+		routeTrack: (j.route_track === "selection" || j.route_track === "rewrite") ? j.route_track : "auto", /* 路由轨道逃生舱: auto(缺省)=纯能力检测(实测六版全对); selection=强制 rc.1 轨(宿主无 select 时回落 auto); rewrite=强制 rc.3 轨(⚠ 有硬断言的宿主上会崩 turn, 仅排查用)。见 useSelectionTrack() */
 		subagentPolicy, /* §二十六 v27 */
 		guard: !(j.guard && typeof j.guard === "object" && j.guard.enabled === false), /* §五 序1 退化守卫总开关(缺省开; enabled:false=全链路旁路, 账本仍记 warn 类) */
 		inputModalities, /* §二十八 v4.3.7: 视觉模态顶层广告终裁(喂伪模型派生); §二十九: modelModalities 影子层已移除 */
@@ -671,7 +782,10 @@ function renderToolCalls(tcs) {
 	}
 	return lines.join("\n");
 }
-function referenceMessages(messages) {
+function referenceMessages(messages, budgets) {
+	/* v4.5.1: budgets={tool, input} 可选(缺省常量; cfg.ref_tool_result_budget/ref_input_char_budget 透传)——R 侧裁剪窗口放宽后仍可按槽位窗口收紧 */
+	const toolBudget = (budgets && Number.isFinite(budgets.tool)) ? budgets.tool : REF_TOOL_RESULT_BUDGET;
+	const inputBudget = (budgets && Number.isFinite(budgets.input)) ? budgets.input : REF_INPUT_CHAR_BUDGET;
 	const rendered = [];
 	let lastUserText = null;
 	for (const msg of (messages || [])) {
@@ -693,7 +807,7 @@ function referenceMessages(messages) {
 			if (calls) parts.push(calls);
 			if (parts.length) rendered.push({ role: "assistant", content: parts.join("\n") });
 		} else if (role === "tool") {
-			const block = "[tool result: " + truncateToolResult(text) + "]";
+			const block = "[tool result: " + truncateToolResult(text, toolBudget) + "]";
 			const prev = rendered[rendered.length - 1];
 			if (prev && prev.role === "assistant") prev.content += "\n" + block;
 			else rendered.push({ role: "assistant", content: block });
@@ -704,12 +818,12 @@ function referenceMessages(messages) {
 	/* [铁律3 输入侧] 字符预算裁剪: 超预算时保留尾部(最新上下文)丢头部最旧消息, 首条补省略注记。
 	 * 生产实测 350 条消息未裁剪直发即超窗口风险(UNKNOWN 瞬败疑似根因之一)+成本浪费。 */
 	const total = rendered.reduce((n, m) => n + m.content.length, 0);
-	if (total > REF_INPUT_CHAR_BUDGET) {
+	if (total > inputBudget) {
 		const kept = [];
 		let acc = 0;
 		for (let i = rendered.length - 1; i >= 0; i--) {
 			const len = rendered[i].content.length;
-			if (acc + len > REF_INPUT_CHAR_BUDGET && kept.length) break;
+			if (acc + len > inputBudget && kept.length) break;
 			kept.unshift(rendered[i]);
 			acc += len;
 		}
@@ -1817,24 +1931,60 @@ function apply(ctx) {
 	// ⚠ 投影同步更新: session.append 同步 commit(dsh-session:1536-1545, :1599/:1601) ⇒
 	//   session/event 观察者同步跑 ⇒ session-projection 的 eager drive(:79-81)同步 fold
 	//   ⇒ modelSelection 投影的 pending 立即更新 ⇒ :671 的 current() 读到新值。
+	//
+	// ⚠ 粘住问题(必须处理): request/header 事件会把「匹配的 pending」退休, 但 lastUsed
+	//   保留该路由(dsh-agent/lib/types/model-selection.js:56-59) ⇒ current() = pending ?? lastUsed
+	//   ⇒ 伪路由会成为 lastUsed ⇒ **后续每一个普通 step 都会读到伪路由**(与 rc.3「仅该 turn
+	//   是 MoA 轮」不符)。故每个 step 前都要把 selection 设回真路由。
+	// ⚠ 真路由从哪来: agent.options 是**创建时快照**(agent-loop:539 赋值后无写入) ⇒ 用户 GUI
+	//   后改选的路由不在里面 ⇒ 不能用它复位(会把用户选择覆盖回旧路由)。
+	//   合法来源只有两处: ① 宿主投影的 lastUsed(但可能是伪路由) ② 插件自己记。
+	//   ⇒ 取 ②: 插件监听「用户改选」入口, 自行记账。宿主唯一的用户改选入口是
+	//   `session/selectModel` RPC(dsh-api-session-controller:704-727) ⇒ 但插件拿不到该 RPC。
+	//   ⇒ 故用「agent/model.current() 的**真路由快照**」: 每次读到非伪路由的 current() 时记下来。
 	const offClaimed = ctx.on("agent/inbox/claimed", (payload) => {
 		try {
 			const agent = payload && payload.agent;
-			if (!agentHasSelect(agent)) return; // rc.3 轨: 无 agent.model ⇒ 走下面的 agent/request 旧逻辑
+			/* 轨道判据: 能力检测 + 逃生舱(route_track 配置, 独立 mtime 缓存热读)。
+			 * 两条轨互斥, 必须用**同一判据**, 否则会出现「rc.1 轨只写 selection 不复位」
+			 * 或「rc.3 轨误写 selection」的半吊子状态。 */
+			if (!useSelectionTrack(agent)) return; // rc.3 轨: 走下面的 agent/request 旧逻辑
 			const m = payload.message;
 			if (!m || m.role !== "user") return;
 			const raw = typeof m.content === "string" ? m.content : flattenText(m.content);
+			const cur = agent.model.current();
 			if (!raw || !raw.trimStart().match(MOA_PREFIX)) {
-				// ⚠ 非 MoA 轮: 把 selection 从可能残留的伪路由**设回真路由**(防「粘住」)。
-				//   粘住机制: request/header 退休 matching pending 后 lastUsed 仍留伪路由
-				//   (dsh-agent/lib/types/model-selection.js:56-59 + :93-96) ⇒ 后续 step 会读到伪路由。
-				const tr = trueRouteOf(agent);
-				if (tr) {
-					const cur = agent.model.current();
-					if (cur && cur.provider !== tr.provider) {
-						agent.model.select(tr);
-						console.log("[moa-native] rc.1 轨: selection 复位回真路由 " + tr.provider + "/" + tr.model);
-					}
+				// 非 MoA 轮: 把 selection 从可能残留的伪路由复位回 **MoA 轮之前的选择**。
+				// 复位目标 = preMoaSelection 账本(可能是真路由, 也可能是 GUI 常驻的配方伪路由)
+				// ⇒ 两种用户用法都能正确回到原语义(见 preMoaSelection 注释)。
+				// ⚠ 仅当当前确实是**本插件写的**伪路由时才复位:
+				//   否则会覆盖用户刚做的改选; 且 GUI 常驻配方场景下当前伪路由是**用户自己选的**
+				//   (不是残留) ⇒ 复位会破坏常驻语义(见 moaForcedPseudo 注释)。
+				const forced = moaForcedPseudo.get(agent);
+				const back = preMoaSelection.get(agent);
+				/* ⚠ 四重判据, 缺一即破坏用户语义:
+				 *   ① back 有账本(=MoA 轮之前确有真路由选择)
+				 *   ② forced 有记录(=本插件确实写过伪路由; GUI 常驻配方场景下没有 ⇒ 不复位)
+				 *   ③ 当前确是伪路由
+				 *   ④ 当前伪模型名 == 本插件写入的那个(=不是用户中途改选的别的配方)
+				 * ⚠ turn 边界: 同 turn 内用户追加消息(非 /moa)也会触发 claimed ⇒ 无 turn 判据会误复位,
+				 *   中断进行中的 MoA turn(rc.3 轨不会: pendingMoa 按 turn 匹配 ⇒ 同 turn 继续改写伪路由)。 */
+				const sameTurn = !!forced && forced.turn === payload.turn;
+				/* ⚠ 可观测性(2026-11-05 实测补): 区分「已复位」与「无需复位」。
+				 *   实测现象: rc.1 轨下跨 turn 的普通消息**看不到**复位日志, 但投影里
+				 *   lastUsed 已是真路由 ⇒ 结论: 那时 current() 本身已是真路由(宿主在续会话/
+				 *   新 turn 时用默认模型覆盖了 selection)⇒ **无需**复位 ⇒ 不写 model/selection。
+				 *   ⇒ 若日志只打「写了 selection」那一种, 会让人误以为复位没生效。
+				 *   ⚠ 判据 ③ 失败(当前不是伪路由)时**只记不写**, 绝不覆盖用户/宿主的路由。 */
+				const needReset = !!(back && !sameTurn && forced && cur && cur.provider === PSEUDO && cur.model === forced.model);
+				if (needReset) {
+					agent.model.select(back);
+					moaForcedPseudo.delete(agent);
+					preMoaSelection.delete(agent);
+					console.log("[moa-native] rc.1 轨: selection 复位回 MoA 前选择 " + back.provider + "/" + back.model);
+				} else if (forced && cur && cur.provider === PSEUDO && cur.model === forced.model && sameTurn) {
+					/* 同 turn 内用户追加消息 ⇒ **不**复位(保持 MoA 轮语义, 与 rc.3 轨一致)。 */
+					console.log("[moa-native] rc.1 轨: 同 turn 追加消息 ⇒ 保持伪路由(不复位, 与 rc.3 轨语义一致)");
 				}
 				return;
 			}
@@ -1845,8 +1995,22 @@ function apply(ctx) {
 			// ⚠ 配方识别: GUI 常驻选配方时, 用户选的配方名才是 options.model ⇒ :1810 的
 			//   `cfg.recipes[options.model]` 命中该配方。本行写 standard/ref/full 时 R=null
 			//   ⇒ 回落顶层 refs/aggregator(与今天 /moa 前缀路径完全一致)。
-			//   ⚠ 不写 reasoningEffort: 伪模型未声明 reasoning 能力(dsh-llm 校验链), 带 effort 会炸。
-			agent.model.select({ provider: PSEUDO, model: pseudoModel });
+			// ⚠ effort: 伪模型**声明了全档 reasoning**(pseudoResolved :1538-1541) ⇒ effort 校验能过
+			//   ⇒ 这里可以带上用户当前的 effort(不剥)。反之则须像旧路径那样 delete 掉。
+			// ⚠ 记账: 覆盖前先记住「MoA 轮之前的选择」⇒ 供后续非 MoA 轮复位。
+			// ⚠ 但**不能**把常驻配方的伪路由记进去: 那种情况下「MoA 轮之前的选择」就是
+			//   用户自己选的常驻配方(仍是伪路由)⇒ 记进去等于没记, 且复位判据会失效。
+			//   ⇒ 只在当前是**真路由**时记账(常驻配方场景由 moaForcedPseudo 守卫自然跳过复位)。
+			if (cur && cur.provider !== PSEUDO) {
+				preMoaSelection.set(agent, cur.reasoningEffort === undefined
+					? { provider: cur.provider, model: cur.model }
+					: { provider: cur.provider, model: cur.model, reasoningEffort: cur.reasoningEffort });
+			}
+			const eff = cur && cur.provider !== PSEUDO ? cur.reasoningEffort : undefined;
+			agent.model.select(eff === undefined
+				? { provider: PSEUDO, model: pseudoModel }
+				: { provider: PSEUDO, model: pseudoModel, reasoningEffort: eff });
+			moaForcedPseudo.set(agent, { model: pseudoModel, turn: payload.turn });
 			console.log("[moa-native] rc.1 轨: selection ← 伪路由 " + PSEUDO + "/" + pseudoModel + " (turn " + payload.turn + ", mode=" + (mode || "默认") + ")");
 		} catch (e) {
 			console.error("[moa-native] inbox/claimed 异常(不阻断): " + errText(e));
@@ -1860,15 +2024,22 @@ function apply(ctx) {
 	const offRequest = ctx.on("agent/request", async (payload, next) => {
 		const base = await next();
 		try {
-			if (agentHasSelect(payload.agent)) return base; // rc.1 轨: 不改路由(改则崩 turn)
+			/* 轨道判据(与上面 inbox/claimed **同一判据**: 能力检测 + route_track 逃生舱)。
+			 * rc.1 轨不改路由(改则崩 turn); rc.3 轨走下面的改写逻辑(逐字不动)。
+			 * ⚠ payload.agent 确实存在: agent-loop 的 this.dispatch = agentEvents(loopCtx, this)
+			 *   (dsh-agent-loop:542) ⇒ agentEvents.fused 注入 agent(dsh-agent:359-362) ⇒
+			 *   本守卫在 rc.1 上必然生效(不是"可能拿到 undefined"的乐观假设)。 */
+			if (useSelectionTrack(payload.agent)) return base;
 			const mark = pendingMoa.get(payload.agent);
 			if (!mark || mark.turn !== payload.turn) return base;
 			if (!base || typeof base !== "object") return base;
 			/* mode → 伪 model: R=ref / F=full / null(默认)=standard */
 			const pseudoModel = mark.mode === "R" ? "ref" : mark.mode === "F" ? "full" : "standard";
-			/* [实测 Fix] 伪路由剥 reasoningEffort: M3 注册 adapter 后 prepareCall 的 effort 校验被激活,
-			 * 伪模型未声明 reasoning 能力 → 带 effort 请求 UNSUPPORTED_REASONING_EFFORT 硬炸(headless
-			 * 默认 agent=max 实测)。拦截后 forward 按 agg 槽位 effort/原请求 effort 重解析, 不丢失。 */
+			/* [历史实测 Fix] 伪路由剥 reasoningEffort(rc.3 轨旧逻辑, **本行保持逐字不动**)。
+			 * ⚠ 原因注释已过期, 以 pseudoResolved 为准: 伪模型**现已声明全档** reasoning
+			 *   (minimal/low/medium/high/max) ⇒ effort 校验本身能过, 不再是 UNSUPPORTED 硬炸。
+			 *   ⚠ 但本行仍剥 effort = 双保险: ①拦截后 forward 按 agg 槽位 effort 重解析, 不丢失
+			 *   ②rc.1 轨断言比较 effort(两侧恒等, 见 model-fallback 同款订正注)⇒ 少一个变量少一分风险。 */
 			const rewritten = { ...base, provider: PSEUDO, model: pseudoModel };
 			delete rewritten.reasoningEffort;
 			console.log("[moa-native] agent/request 改写路由 → " + PSEUDO + "/" + pseudoModel + " (turn " + payload.turn + ")");
@@ -2004,7 +2175,7 @@ function apply(ctx) {
 				} else {
 					/* M4 双模式: R=裁剪视图(Hermes 复刻) / F=全量 mirror(§十一 v15: 纯镜像不带全局尾注,
 					 * 每路注入尾注在 runRefs 内按 refs[].injection 模块文本追加——完全替换不叠加) */
-					const refMsgs = mode === "F" ? options.messages : referenceMessages(options.messages);
+					const refMsgs = mode === "F" ? options.messages : referenceMessages(options.messages, { tool: E.ref_tool_result_budget, input: E.ref_input_char_budget });
 					const refOpts = mode === "F" ? { system: options.system, tools: options.tools, raw: true } : undefined;
 					/* §五 前置⑥: turn 级守卫排除名单——本 turn 已剔除路不再重扇(防剔除→复燃→再剔除扇出风暴);
 					 * fpKey 变=新 turn, 名单自动作废; 全排除=零块降级直转(设计性缺位, 不写负缓存不记全败)。 */
@@ -2659,7 +2830,7 @@ function apply(ctx) {
 					if (cfg.debug) { try { console.log("[moa-native] list 诊断: raw=" + JSON.stringify(raw).slice(0, 500)); } catch { /* noop */ } } /* v25.1: 诊断行挂 debug 闸(原每次打开面板打 500 字配置进日志) */
 					/* M4.4.2 fix: rawJson 字符串直通——浏览器端 typert 对嵌套对象结果做字段过滤
 					 * (实测: mode/cadence 标量幸存, refs 数组/aggregator 被滤), JSON 字符串不受对象解码影响; raw 保留兼容 */
-					return { ok: true, rawJson: JSON.stringify(raw), raw, effective: { mode: cfg.mode, recipe: cfg.recipe, recipes: cfg.recipes, refs: cfg.refs, aggregator: cfg.aggregator, disabledModels: cfg.disabledModels, promptLang: cfg.promptLang, injectionDefault: injDefaultOf(cfg), injectionDefaultZh: INJECTION_DEFAULT_TEXT, injectionDefaultEn: INJECTION_DEFAULT_TEXT_EN, aggInjection: cfg.aggInjection || AGG_INJ_DEFAULT_NAME, aggInjections: cfg.aggInjections || {}, aggInjDefault: aggDisciplineDefaultOf(cfg), aggInjDefaultZh: AGG_DISCIPLINE_DEFAULT_TEXT, aggInjDefaultEn: AGG_DISCIPLINE_DEFAULT_TEXT_EN, aggInjForRefsBlank: aggDisciplineForRefsBlankOf(cfg), aggInjForRefsBlankZh: AGG_DISCIPLINE_FORREFSBLANK_TEXT, aggInjForRefsBlankEn: AGG_DISCIPLINE_FORREFSBLANK_TEXT_EN, mechF: (cfg.promptLang === "en") ? MECH_F_EN : MECH_F, mechFZh: MECH_F, mechFEn: MECH_F_EN, mechR: MECH_R, warnings: cfg.warnings || [] } }; /* v4.4.0: effective 各内置文本随 prompt_lang 解析(单一事实源) + promptLang 下发; 2026-11-04 补: 四件内置文本 zh/en 双变体齐下发(mechFZh/En·injectionDefaultZh/En·aggInjDefaultZh/En·aggInjForRefsBlankZh/En)——面板 🌐 切换即时显示对应语言(不等保存), 单字段(随已存语言)保留向后兼容 */
+					return { ok: true, rawJson: JSON.stringify(raw), raw, effective: { mode: cfg.mode, recipe: cfg.recipe, recipes: cfg.recipes, refs: cfg.refs, aggregator: cfg.aggregator, disabledModels: cfg.disabledModels, promptLang: cfg.promptLang, injectionDefault: injDefaultOf(cfg), injectionDefaultZh: INJECTION_DEFAULT_TEXT, injectionDefaultEn: INJECTION_DEFAULT_TEXT_EN, aggInjection: cfg.aggInjection || AGG_INJ_DEFAULT_NAME, aggInjections: cfg.aggInjections || {}, aggInjDefault: aggDisciplineDefaultOf(cfg), aggInjDefaultZh: AGG_DISCIPLINE_DEFAULT_TEXT, aggInjDefaultEn: AGG_DISCIPLINE_DEFAULT_TEXT_EN, aggInjForRefsBlank: aggDisciplineForRefsBlankOf(cfg), aggInjForRefsBlankZh: AGG_DISCIPLINE_FORREFSBLANK_TEXT, aggInjForRefsBlankEn: AGG_DISCIPLINE_FORREFSBLANK_TEXT_EN, mechF: (cfg.promptLang === "en") ? MECH_F_EN : MECH_F, mechFZh: MECH_F, mechFEn: MECH_F_EN, mechR: MECH_R, routeTrack: cfg.routeTrack, routeTrackEffective: (routeTrackCached() === "auto" ? "auto(能力检测)" : routeTrackCached()), warnings: cfg.warnings || [] } }; /* v4.4.0: effective 各内置文本随 prompt_lang 解析(单一事实源) + promptLang 下发; 2026-11-04 补: 四件内置文本 zh/en 双变体齐下发(mechFZh/En·injectionDefaultZh/En·aggInjDefaultZh/En·aggInjForRefsBlankZh/En)——面板 🌐 切换即时显示对应语言(不等保存), 单字段(随已存语言)保留向后兼容; 2026-11-05 补: routeTrack 轨道逃生舱可见性(当前配置值 + 实际生效形态) */
 				},
 				async models() {
 					const out = { providers: {}, slots: {}, runtime_ok: false, effortsBy: {} };
@@ -2797,5 +2968,18 @@ function apply(ctx) {
 	else if (cfgBoot.tieredParams) console.log("[moa-native] 节拍参数表在盘(steering=" + cfgBoot.tieredParams.steering.length + " 路, n=" + cfgBoot.tieredParams.n + ", m=" + cfgBoot.tieredParams.m + ")但顶层 cadence 非 tiered——配方级 cadence=\"tiered\" 命中时按此表点亮"); /* v4.4.0 验证期修复配套: 参数表/激活位解耦的可观测面 */
 }
 
-const inject = ["llm", "tools", "webServer"];
+/* ⚠ 2026-11-05 修订: **webServer 从模块级 inject 移出**(llm / tools 保留为真依赖)。
+ *   原 `inject = ["llm","tools","webServer"]` = webServer 是**硬依赖** ⇒ 在**没有 webServer 的
+ *   宿主**(headless / SDK / ACP)上 fiber 永远 pending ⇒ **整个插件不加载** ⇒
+ *   伪 adapter 注册、llm/stream 拦截、/moa 前缀捕获、rc.1 轨的 selection 写入**全部失效**,
+ *   只为换取几个面板端点 —— 代价与收益完全失衡。
+ *   实测(沙箱 C, 0.2.2-rc.1 headless profile):
+ *     "dsh: warning: 2 entries did not activate
+ *      moa-native (...): pending (waiting for service: webServer)"
+ *   ⇒ 改为: llm/tools 仍是硬依赖(伪 adapter 必须注册、llm/stream 必须拦), 但 **webServer 改成
+ *     运行期 ctx.inject(["webServer"], …) 延迟挂载**(apply() 内已有同款写法, 见 webServer 端点块)
+ *     ⇒ 面板在 web 宿主照常, 在 headless/SDK 上只是没有面板, **核心能力不受影响**。
+ *   ⚠ cordis 无「可选依赖」语义(inject 缺服务 ⇒ fiber pending ⇒ 不激活),
+ *     所以「可选」只能靠**运行期 ctx.inject** 实现。 */
+const inject = ["llm", "tools"];
 export { apply, inject, name };

@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.5.1 (2026-11-07)
+
+The compatibility release: one build runs on both DSH 0.2.1 and 0.2.2 lines, and the trimmed (R) mode gets a wider window.
+
+- **Default mode is F (full mirror) — and it is the expensive one. Read this before sizing a lineup.** Every reference route receives the exact system prompt, tool definitions, and full history the acting model sees: zero information asymmetry, KV-cache-friendly (hit rates above 90% with guidance anchoring), but the input bill scales with the conversation length on every beat. The console's *recommended mode* (F + blank-injection flash refs + tiered cadence) is tuned to keep that bill low — flash refs, frozen reuse between beats, anchored guidance. If your sessions run long and the input cost still hurts, switch a recipe to **R** — that is what it exists for.
+- **R (trimmed view, the Hermes-lineage mode) gets a wider window**: the per-tool-result truncation budget doubles 4,000 → 8,000 chars, and the overall refs-view budget widens 120,000 → 160,000 chars (≈40–80k tokens). Both are now configurable per install — `ref_tool_result_budget` and `ref_input_char_budget` (global top-level keys; R only, F full mirror is unaffected). Tighten them back for small-window refs, widen further for 1M-context routes. R still drops the system prompt and folds tool results by design — it is the economy lane, not a second mirror.
+- **Cross-version dual-track routing (host compatibility)**: one build now serves both the 0.2.1 line and the 0.2.2-rc line of the DSH host — the interceptor detects which routing surface the host exposes (`agent.model.select` vs rewrite) and rides it; no config change needed across host upgrades. Verified on a sandbox preview before the production swap, then on production itself after the swap.
+- **`webServer` moved from module-level injection to runtime lazy attach**: plugin load no longer touches the host web server at import time — fixes activation-order fragility observed on the 0.2.2-rc line (a cold host could expose the panel routes before the server object existed).
+- Housekeeping: pinned-version assertions in the older verify matrices (`verify-v28`/`verify-v4312`, with `verify-v29` reading the pin) are updated with this bump — they were left pointing at 4.4.0 when 4.5.0 shipped and went red as a result.
+
 ## 4.5.0 (2026-11-05)
 
 The cache-friendly release: guidance is pinned where it was produced, and the memory anchor no longer rewrites the system prompt.

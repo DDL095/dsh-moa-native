@@ -81,9 +81,9 @@ Restart the instance and refresh the browser.
 
 **Injection modules** — each route's trailing note is a visible, editable text module: built-in default (Hermes-style), blank (zero injection), or any custom one. No hidden personas, no output-length contracts.
 
-**Two reference modes**:
-- **F · full mirror** — references see exactly what the acting model sees; KV prefix cache hit rates above 90%
-- **R · trimmed view** — Hermes-style tool-result trimming with input budgets
+**Two reference modes** — the default is **F**; pick R when the input bill matters more than perfect fidelity:
+- **F · full mirror** *(default)* — references see exactly what the acting model sees; KV prefix cache hit rates above 90%. **Costs the most**: every reference route bills the full system + tools + history on every beat, so the input spend scales with conversation length. The recommended lineup (F + blank-injection flash refs + tiered cadence + anchored guidance) exists precisely to keep this bill low — flash-tier refs, frozen reuse between beats, −36% uncached tokens vs the trailing form.
+- **R · trimmed view** — Hermes-style tool-result trimming with input budgets; drops the system prompt, folds tool results, and caps the view. The economy lane. Since 4.5.1 its window is wider and configurable: per-tool-result budget 8,000 chars (`ref_tool_result_budget`), overall view budget 160,000 chars ≈ 40–80k tokens (`ref_input_char_budget`) — tighten for small-window refs, widen for long-context routes.
 
 **Subagent gating** — MoA applies to the main session by default; subagent sessions pass straight through the aggregator, with an optional every-N-steps upgrade. Design rationale: [SUBAGENT-GATING-DESIGN.md](docs/SUBAGENT-GATING-DESIGN.md).
 
@@ -107,7 +107,9 @@ Comparison with the MoA paper (arXiv:2406.04692), Hermes `/moa`, and community d
   ],
   "aggregator": "provider-c/main-model@max",
   "aggInjection": "agg_forrefsblank",       // parallel-plan discipline (recommended); default agg_default
-  "mode": "F",                              // F full mirror | R trimmed view
+  "mode": "F",                              // F full mirror (default, zero info gap, highest input cost) | R trimmed view (economy)
+  "ref_tool_result_budget": 8000,           // R only: per-tool-result truncation budget (chars)
+  "ref_input_char_budget": 160000,          // R only: overall refs-view budget (chars ≈ 40-80k tokens)
   "cadence": "user_turn",                   // user_turn | per_iteration | {every_n: 2} | "tiered"(see above)
   "subagent_policy": "passthrough",         // subagent gating: passthrough | {every_n: 5} | full
   "injections": { "critic": "Your first duty is to scrutinize…" },
