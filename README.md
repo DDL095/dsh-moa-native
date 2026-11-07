@@ -83,7 +83,7 @@ Restart the instance and refresh the browser.
 
 **Two reference modes** — the default is **F**; pick R when the input bill matters more than perfect fidelity:
 - **F · full mirror** *(default)* — references see exactly what the acting model sees; KV prefix cache hit rates above 90%. **Costs the most**: every reference route bills the full system + tools + history on every beat, so the input spend scales with conversation length. The recommended lineup (F + blank-injection flash refs + tiered cadence + anchored guidance) exists precisely to keep this bill low — flash-tier refs, frozen reuse between beats, −36% uncached tokens vs the trailing form.
-- **R · trimmed view** — Hermes-style tool-result trimming with input budgets; drops the system prompt, folds tool results, and caps the view. The economy lane. Since 4.5.1 its window is wider and configurable: per-tool-result budget 8,000 chars (`ref_tool_result_budget`), overall view budget 160,000 chars ≈ 40–80k tokens (`ref_input_char_budget`) — tighten for small-window refs, widen for long-context routes.
+- **R · trimmed view** — Hermes-style tool-result trimming; drops the system prompt, folds tool results. The economy lane. Its overall window is **per-model dynamic** (4.5.2): each route's budget comes from its own registered context window — `(window × 0.9 − 8192) × 1.5` chars, the whole fleet flying on the minimum, so a 64k ref tightens the view and a 1M ref sees more. Tool results truncate at Hermes' own 4,000 chars (`ref_tool_result_budget`); `ref_input_char_budget`, when set, caps the dynamic budget. Unknown windows ride the conservative 128k baseline (warned once; fill `contextWindow` in `DSH-MoA-model-registry.json` to enable exact adaptation).
 
 **Subagent gating** — MoA applies to the main session by default; subagent sessions pass straight through the aggregator, with an optional every-N-steps upgrade. Design rationale: [SUBAGENT-GATING-DESIGN.md](docs/SUBAGENT-GATING-DESIGN.md).
 
@@ -108,8 +108,8 @@ Comparison with the MoA paper (arXiv:2406.04692), Hermes `/moa`, and community d
   "aggregator": "provider-c/main-model@max",
   "aggInjection": "agg_forrefsblank",       // parallel-plan discipline (recommended); default agg_default
   "mode": "F",                              // F full mirror (default, zero info gap, highest input cost) | R trimmed view (economy)
-  "ref_tool_result_budget": 8000,           // R only: per-tool-result truncation budget (chars)
-  "ref_input_char_budget": 160000,          // R only: overall refs-view budget (chars ≈ 40-80k tokens)
+  "ref_tool_result_budget": 4000,           // R only: per-tool-result truncation budget (chars; Hermes lineage default 4000)
+  "ref_input_char_budget": null,            // R only: cap on the per-model dynamic budget (unset = purely dynamic; window-derived)
   "cadence": "user_turn",                   // user_turn | per_iteration | {every_n: 2} | "tiered"(see above)
   "subagent_policy": "passthrough",         // subagent gating: passthrough | {every_n: 5} | full
   "injections": { "critic": "Your first duty is to scrutinize…" },

@@ -35,6 +35,7 @@ const ensureTypert = async () => {
 const name = "moa-native";
 const PSEUDO = "moa-native";
 const __pseudoWinWarned = new Set(); // v25.1: prepareCall contextWindow 未解析一次性告警(防每次调用刷屏)
+const __refWinWarned = new Set(); // v4.5.2: R 视图预算的 registry 窗口缺失一次性告警(每 provider/model 一次)
 
 // ── 配置与槽位(与 moa 三件套共享槽位体系: registry + moa.config.json 覆盖层) ──
 const NATIVE_CONFIG_PATH = join(homedir(), ".dsh", "profiles", "web", "moa-native.config.json");
@@ -42,7 +43,7 @@ const MODEL_REGISTRY_PATH = join(homedir(), ".dsh", "DSH-MoA-model-registry.json
 const MOA_CONFIG_PATH = join(homedir(), ".dsh", "profiles", "web", "moa.config.json");
 
 // ── Hermes 常量(原文语义照录, 参考 docs/hermes-ref/moa_loop.py) ──
-const REF_TOOL_RESULT_BUDGET = 8000; // v4.5.1: R 侧单条工具结果截断预算(4000→8000, 头尾各半保留); 可经 ref_tool_result_budget 覆盖
+const REF_TOOL_RESULT_BUDGET = 4000; // R 侧单条工具结果截断预算(头尾各半保留+省略注记)——对齐 Hermes 谱系原值 4k(docs/hermes-ref/moa_loop.py _REFERENCE_TOOL_RESULT_BUDGET); 要更宽的工具结果预览可经 ref_tool_result_budget 放宽(v4.5.1 曾短暂放宽到 8000, v4.5.2 用户裁定回滚对齐谱系, 键保留=调整通道仍在)
 const ADVISORY_INSTRUCTION =
 	"[The conversation above is the current state of the task. Give your " +
 	"most intelligent judgement: what is going on, what should happen next, " +
@@ -71,7 +72,10 @@ const REF_PERSONA =
  *   缺省落本常量; 超时类不再盲重试(见 classifyRefErr: 看门狗=本地确定性判死, 重发大概率再超时)。 */
 const CHUNK_IDLE_MS = 240000; // refs 单路活性看门狗: 连续无 chunk 判挂死(moa 同款语义)
 const REF_DEADLINE_MS = 600000; // [盲审 P1] refs 单路总超时: 慢滴流(每 119s 吐一字可无限续命看门狗)拖死整轮的硬上限
-const REF_INPUT_CHAR_BUDGET = 160000; // [铁律3 输入侧] refs 视图总字符预算(约 40-80k token; v4.5.1 由 120000 放宽, 可经 ref_input_char_budget 覆盖——F 全量镜像太贵时的省钱档, 窗口放宽=裁剪更少信息差更小)
+const REF_INPUT_CHAR_BUDGET = 160000; // [铁律3 输入侧] refs 视图总字符预算【回落值】(≈128k 窗模型的动态值; 仅当某路 ref 的窗口解析不到时兜底)。v4.5.2 起主路径=per-model 动态预算, 见 refFleetCharBudget
+const REF_TRIM_SAFETY_FRACTION = 0.10; // Hermes 同款(docs/hermes-ref/moa_loop.py): 窗口安全系数——动态预算 = 窗口 token×(1−此值)−输出预留
+const REF_OUTPUT_RESERVE_TOKENS = 8192; // Hermes 同款(_REFERENCE_DEFAULT_OUTPUT_RESERVE): 动态预算再减的输出预留 token
+const REF_CHAR_PER_TOKEN = 1.5; // token→字符保守折算系数(中文≈1.5-2 char/token 最贵, 英文≈4; 取保守小系数=宁可多裁不超窗)
 /* ── §五 v3.9 退化守卫(节律化序1, TIERED §5) ── */
 const GUARD_CHECK_STEP = 4096;  // 流内检测步长(双通道合并字符预算: 思考+正文累计达此值即检)
 const GUARD_LEN_WARN = 16000;   // reasoning 长度预算: 仅 warn 不 abort(kimi 合法长思考不可按长度杀)
@@ -730,9 +734,11 @@ function loadConfig() {
 		ref_deadline_ms: Number.isFinite(j.ref_deadline_ms) ? Math.max(30000, Math.min(3600000, Math.floor(j.ref_deadline_ms))) : REF_DEADLINE_MS,
 		ref_idle_ms: Number.isFinite(j.ref_idle_ms) ? Math.max(30000, Math.min(3600000, Math.floor(j.ref_idle_ms))) : CHUNK_IDLE_MS,
 		ref_overrides: (j.ref_overrides && typeof j.ref_overrides === "object") ? j.ref_overrides : {},
-		/* v4.5.1: R 侧裁剪预算可配(全局覆盖常量缺省; 仅 R 模式消费, F 全量镜像不受辖) */
+		/* v4.5.1: R 侧裁剪预算可配(全局覆盖常量缺省; 仅 R 模式消费, F 全量镜像不受辖)
+		 * v4.5.2: ref_input_char_budget 语义升级=显式配置时作为 per-model 动态预算的**封顶**(min(动态,配置)); 缺省不封=纯动态(refFleetCharBudget)。_explicit=内部标志(非面板键)。 */
 		ref_tool_result_budget: Number.isFinite(j.ref_tool_result_budget) ? Math.max(500, Math.floor(j.ref_tool_result_budget)) : REF_TOOL_RESULT_BUDGET,
 		ref_input_char_budget: Number.isFinite(j.ref_input_char_budget) ? Math.max(4000, Math.floor(j.ref_input_char_budget)) : REF_INPUT_CHAR_BUDGET,
+		ref_input_char_budget_explicit: Number.isFinite(j.ref_input_char_budget),
 		settle_ms: Number.isFinite(j.settle_ms) ? Math.max(0, Math.floor(j.settle_ms)) : 2000, // 中断后 settle 窗口(Hermes _REFERENCE_INTERRUPT_SETTLE_S 同款语义)
 		cadence,
 		tiered: tieredOn ? tieredParams : null, /* §二 v3.9: 激活态节拍参数(顶层 cadence==="tiered" 点亮; null=非节拍档) */
@@ -832,6 +838,38 @@ function referenceMessages(messages, budgets) {
 		return kept.length ? kept : rendered.slice(-2);
 	}
 	return rendered;
+}
+
+// ── v4.5.2: per-model 动态预算(R 总预算适配各 ref 自身窗口; Hermes _trim_messages_for_reference 语义的字符口径移植) ──
+function refCharBudgetOf(windowTokens) {
+	/* 单窗口 token→字符预算: (窗口×(1−REF_TRIM_SAFETY_FRACTION)−REF_OUTPUT_RESERVE_TOKENS)×REF_CHAR_PER_TOKEN(保守折算);
+	 * 非法/极小窗口→null(由调用方按缺失处理, 不产出危险预算)。地板=4×工具结果预算(至少容几条工具结果, 防极小窗裁到只剩壳)。 */
+	if (!Number.isFinite(windowTokens) || windowTokens <= 0) return null;
+	const tok = Math.floor(windowTokens * (1 - REF_TRIM_SAFETY_FRACTION)) - REF_OUTPUT_RESERVE_TOKENS;
+	if (tok <= 0) return null;
+	return Math.max(REF_TOOL_RESULT_BUDGET * 4, Math.floor(tok * REF_CHAR_PER_TOKEN));
+}
+function refFleetCharBudget(refEntries, slots, explicitCap, winOf) {
+	/* 全队取最小(min-of-fleet): R 共享一份裁剪视图的架构下, 最小窗路吃得下 ⇒ 全队吃得下(不超任何一路窗口)。
+	 * winOf(provider, model)→窗口 token(生产注入 registryContextWindow; 测试可注入桩)。
+	 * 窗口缺失的路**不跳过**——按 REF_INPUT_CHAR_BUDGET(≈128k 窗基准, 主流窗口下限保守假设)参与取 min:
+	 * 跳过会让缺失路被大窗路的预算暴露到超窗(混合阵容 flash 缺窗口是常态); 保守参与=永不劣于固定预算时代。
+	 * 返回 {budget, fromWindow, resolved, missing, missingModels}: budget 恒非 null(空阵容→REF_INPUT_CHAR_BUDGET);
+	 * missingModels=["provider/model",…] 供调用方一次性 warn(数据补齐指引, fail-visible)。
+	 * explicitCap(数字)=用户显式配置的 ref_input_char_budget ⇒ 封顶 min(动态, 配置)(压成本意图, 只降不抬); 未传=纯动态不封。 */
+	let min = null, resolved = 0, missing = 0;
+	const missingModels = [];
+	for (const entry of (refEntries || [])) {
+		const key = (entry && typeof entry === "object" && typeof entry.model === "string") ? entry.model : entry; /* refs/lane 对象形态 {model, injection} 取 model; 其余按字符串/槽位名走 resolveEntry */
+		const r = resolveEntry(key, slots);
+		let b = (r && Number.isFinite(winOf(r.provider, r.model))) ? refCharBudgetOf(winOf(r.provider, r.model)) : null;
+		if (b == null) { missing++; if (r) missingModels.push(r.provider + "/" + r.model); b = REF_INPUT_CHAR_BUDGET; }
+		else resolved++;
+		if (min == null || b < min) min = b;
+	}
+	let budget = (min != null) ? min : REF_INPUT_CHAR_BUDGET;
+	if (Number.isFinite(explicitCap)) budget = Math.min(budget, Math.max(4000, Math.floor(explicitCap)));
+	return { budget, fromWindow: min, resolved, missing, missingModels };
 }
 
 // ── turn 指纹(v25.2 注入免疫: 锚定「真实 user 输入」)──
@@ -2174,8 +2212,8 @@ function apply(ctx) {
 					if (tr) { tr.kind = "cache"; try { tr.cached = { entryCount: cached.entryCount || 0, negative: !!cached.negative, stale: staleNow }; } catch { /* noop */ } }
 				} else {
 					/* M4 双模式: R=裁剪视图(Hermes 复刻) / F=全量 mirror(§十一 v15: 纯镜像不带全局尾注,
-					 * 每路注入尾注在 runRefs 内按 refs[].injection 模块文本追加——完全替换不叠加) */
-					const refMsgs = mode === "F" ? options.messages : referenceMessages(options.messages, { tool: E.ref_tool_result_budget, input: E.ref_input_char_budget });
+					 * 每路注入尾注在 runRefs 内按 refs[].injection 模块文本追加——完全替换不叠加)。
+					 * refMsgs 构建在 fanoutRefs 定型后(v4.5.2): R 的总预算=per-model 动态, 依赖本拍生效阵容(lane/守卫排除后)。 */
 					const refOpts = mode === "F" ? { system: options.system, tools: options.tools, raw: true } : undefined;
 					/* §五 前置⑥: turn 级守卫排除名单——本 turn 已剔除路不再重扇(防剔除→复燃→再剔除扇出风暴);
 					 * fpKey 变=新 turn, 名单自动作废; 全排除=零块降级直转(设计性缺位, 不写负缓存不记全败)。 */
@@ -2197,6 +2235,19 @@ function apply(ctx) {
 					const laneIsCustom = E.tiered && (((laneOverride || lane) === "steering") ? (E.tiered.steering && E.tiered.steering.length) : (E.tiered.patrol && E.tiered.patrol.length));
 					const laneBase = laneIsCustom ? resolveLaneInjections(laneBaseRaw, effRefs, E) : laneBaseRaw;
 					const fanoutRefs = (gExcl && gExcl.labels.size) ? laneBase.filter((r) => !gExcl.labels.has(refLabelOf(r))) : laneBase;
+					/* v4.5.2: R 总预算=per-model 动态(min-of-fleet)——各路按 registry 窗口算 (win×0.9−8192)×1.5 字符, 全队取最小;
+					 * 窗口缺失的路按保守 128k 基准参与取 min(不跳过, 防缺失路被大窗路暴露到超窗); 显式配置 ref_input_char_budget=封顶;
+					 * 空阵容/极端→REF_INPUT_CHAR_BUDGET 兜底。F 不走此路。 */
+					let rInputBudget = E.ref_input_char_budget;
+					if (mode !== "F") {
+						const fleet = refFleetCharBudget(fanoutRefs, slots, E.ref_input_char_budget_explicit ? E.ref_input_char_budget : undefined, registryContextWindow);
+						rInputBudget = fleet.budget;
+						for (const pm of (fleet.missingModels || [])) {
+							if (!__refWinWarned.has(pm)) { __refWinWarned.add(pm); log(E, "warn", "ref " + pm + " 在 registry 无 contextWindow 字段, 按保守 128k 窗基准参与 R 视图预算(min-of-fleet); 建议在 DSH-MoA-model-registry.json 为该模型补 contextWindow 以启用精确适配"); }
+						}
+						if (E.debug) log(E, "info", "R 视图预算: per-model 动态 " + fleet.budget + " 字符(最小基准 " + fleet.fromWindow + ", " + fleet.resolved + " 路精确/" + fleet.missing + " 路保守" + (E.ref_input_char_budget_explicit ? ", 显式配置封顶 " + E.ref_input_char_budget : "") + ")");
+					}
+					const refMsgs = mode === "F" ? options.messages : referenceMessages(options.messages, { tool: E.ref_tool_result_budget, input: rInputBudget });
 					if (!fanoutRefs.length) {
 						log(E, "info", "本 turn refs 全部被守卫剔除 → 零块降级直转(不写缓存)");
 						guidance = null;

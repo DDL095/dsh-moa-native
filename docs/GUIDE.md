@@ -32,7 +32,7 @@ provider 页 `moa-native` 组 = **default + 每个配方一个条目**,选谁=�
 
 实测数据(2026-10-24 探针矩阵,`~/.dsh/mirror-probe-runs/`):F 模式与 DSH 压缩兼容(压缩轮一次失效,约 5 轮恢复 90%+);guidance 尾巴轮换对前缀缓存零伤害。模式优先级:`/moaR//moaF` 显式 > 配方 mode 绑定 > 面板默认 > **F 兜底**。
 
-**R 侧裁剪预算(v4.5.1 放宽+可配)**:单条工具结果截断 4000→**8000** 字符(头尾各半保留),refs 视图总预算 120000→**160000** 字符(约 40-80k token)。两个键可全局覆盖:`ref_tool_result_budget`(域 ≥500)与 `ref_input_char_budget`(域 ≥4000)——小窗 ref 模型收紧、长上下文路线再放宽,按槽位窗口自调;仅 R 消耗,F 全量镜像不受辖。
+**R 侧裁剪预算(v4.5.2 per-model 动态)**:总预算按**各 ref 模型自身窗口**动态算——`(registry contextWindow×0.9 安全系数−8192 输出预留)×1.5 保守字符/token`(Hermes `_trim_messages_for_reference` 同款参数的字符口径移植),全队取**最小**(min-of-fleet,共享视图下最小窗路吃得下=全队吃得下):128k 模型≈164k 字符、64k≈76k、1M≈1.4M——大窗阵容不再被固定 160k 剪。窗口缺失的路按**保守 128k 基准参与取 min**(不跳过,防缺失路被大窗路暴露到超窗)并一次性 warn(补 `DSH-MoA-model-registry.json` 的 contextWindow 字段后即精确适配);显式配置 `ref_input_char_budget`(域 ≥4000)=动态预算**封顶**(只降不抬,缺省不封)。单条工具结果截断对齐 Hermes 谱系 **4000** 字符(v4.5.1 曾放宽 8000,已回滚;`ref_tool_result_budget` 域 ≥500 保留调整通道)。仅 R 消耗,F 全量镜像不受辖。
 
 ## 三、设置面板「MoA-Native 控制台」
 

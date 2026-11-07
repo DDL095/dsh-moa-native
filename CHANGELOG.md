@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.5.2 (2026-11-07)
+
+The per-model budget release: the trimmed view's overall window now adapts to each reference model's own context window — Hermes' `_trim_messages_for_reference` semantics, ported.
+
+- **Per-model dynamic input budget (R mode)**: instead of one fixed character budget for every lineup, each reference route's budget is computed from its own registered context window — `(window × 0.9 safety − 8192 output reserve) × 1.5 conservative chars/token`, the same parameters Hermes uses, in character terms. The whole fleet flies on the **minimum** (`min-of-fleet`): the R view is shared by all routes in a beat, and if the smallest-window route can eat it, everyone can. A 128k model resolves to ≈164k chars, a 64k model to ≈76k, a 1M model to ≈1.4M — big-window lineups finally see more instead of being clipped to the old fixed 160k.
+- **Missing window data never widens the view**: a route whose window cannot be resolved participates in the minimum at the conservative 128k baseline (160k chars) instead of being skipped — skipping would expose an unknown-window flash ref to a big-window route's budget. Every unknown route is warned once (`DSH-MoA-model-registry.json` `contextWindow` field to fill). Net guarantee: never worse than the fixed-budget era.
+- **Explicit `ref_input_char_budget` becomes a cap**: when set, it caps the dynamic budget (`min(dynamic, configured)`, never raises it); unset means purely dynamic. `ref_tool_result_budget` semantics unchanged.
+- **Tool-result truncation realigned to the Hermes lineage**: 8,000 → **4,000 chars** — Hermes' own `_REFERENCE_TOOL_RESULT_BUDGET`. 4.5.1 had widened it to 8k; this rolls it back to lineage-faithful, with `ref_tool_result_budget` kept as the adjustment channel.
+- Regression: new behavioural matrix `verify-v451-budget.mjs` (26 assertions: constants, formula, min-of-fleet, conservative-missing semantics, capping, object-entry normalization, wiring); the full existing verify suite (12 scripts) stays green.
+
 ## 4.5.1 (2026-11-07)
 
 The compatibility release: one build runs on both DSH 0.2.1 and 0.2.2 lines, and the trimmed (R) mode gets a wider window.
