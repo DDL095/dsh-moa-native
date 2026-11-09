@@ -38,9 +38,13 @@ const __pseudoWinWarned = new Set(); // v25.1: prepareCall contextWindow 未解�
 const __refWinWarned = new Set(); // v4.5.2: R 视图预算的 registry 窗口缺失一次性告警(每 provider/model 一次)
 
 // ── 配置与槽位(与 moa 三件套共享槽位体系: registry + moa.config.json 覆盖层) ──
-const NATIVE_CONFIG_PATH = join(homedir(), ".dsh", "profiles", "web", "moa-native.config.json");
+/* v4.5.3: 配置路径随 profile 解析——apply() 首行按 ctx.profileContext.dir 重指(桌面 desktop profile
+ * 与 web 各持独立配置, 杜绝跨 profile 读写串扰; v4.5.2 及以前硬编码 profiles/web, 桌面面板保存会
+ * 直接写穿生产 web 配置, 2026-11-09 桌面实测实锤: recipes 2→4)。ctx.profileContext 仅 dsh 启动的
+ * profile 挂载(dsh-app-boot profile-context.d.ts 的 Cordis Context 模块增强); 模块加载时回落
+ * web 路径=4.5.2 行为不变(旧版宿主/verify 脚本沙箱重放注入 NATIVE_CONFIG_PATH 参数均兼容)。 */
+let NATIVE_CONFIG_PATH = join(homedir(), ".dsh", "profiles", "web", "moa-native.config.json");
 const MODEL_REGISTRY_PATH = join(homedir(), ".dsh", "DSH-MoA-model-registry.json");
-const MOA_CONFIG_PATH = join(homedir(), ".dsh", "profiles", "web", "moa.config.json");
 
 // ── Hermes 常量(原文语义照录, 参考 docs/hermes-ref/moa_loop.py) ──
 const REF_TOOL_RESULT_BUDGET = 4000; // R 侧单条工具结果截断预算(头尾各半保留+省略注记)——对齐 Hermes 谱系原值 4k(docs/hermes-ref/moa_loop.py _REFERENCE_TOOL_RESULT_BUDGET); 要更宽的工具结果预览可经 ref_tool_result_budget 放宽(v4.5.1 曾短暂放宽到 8000, v4.5.2 用户裁定回滚对齐谱系, 键保留=调整通道仍在)
@@ -551,6 +555,50 @@ function readSlots() {
 		} catch { /* 缺失/损坏 → 跳过该层 */ }
 	}
 	return slots;
+}
+/* ── v4.5.3: 表外引用扫描(初始引导强化) ──
+ * 背景: 配置引用的 provider/model 不在本环境模型目录(跨 profile/跨机器迁移的定制阵容——如桌面读到
+ * web 的四路 flash 私有反代阵容)时, 面板下拉只标孤立的「（表外）」, 用户无从知道是什么/为什么/怎么办。
+ * 本扫描把清单汇成一条 warning 随 effective.warnings 下发——client 工作台顶部既有警告条直接渲染, 零 client 改动。
+ * 目录快照=30s TTL 缓存(面板 list/models 都会触发全枚举, 缓存削重复); 枚举失败=不扫(fail-open, 不阻断面板)。 */
+let __catalogCache = { at: 0, providers: null }; // {at, providers: {prov: Set(models)}}
+async function catalogSnapshot(ctx) {
+	const now = Date.now();
+	if (__catalogCache.providers && now - __catalogCache.at < 30000) return __catalogCache.providers;
+	const providers = {};
+	try {
+		const provs = await ctx.llm.listProviders();
+		for (const p of (Array.isArray(provs) ? provs : [])) {
+			const midx = typeof p === "string" ? p : (p && (p.id || p.provider || p.name));
+			if (!midx) continue;
+			try { const ms = await ctx.llm.listModels(midx); providers[midx] = new Set((Array.isArray(ms) ? ms : []).map((m) => (m && typeof m === "object" ? (m.id || m.model || String(m)) : String(m))).filter(Boolean)); } catch { providers[midx] = new Set(); }
+		}
+		__catalogCache = { at: now, providers };
+	} catch { return __catalogCache.providers; /* 枚举失败=用旧快照或 null */ }
+	return providers;
+}
+/* 扫描直配 refs/aggregator + 全部自定义配方的全部引用; 槽位名经 readSlots 展开; 返回 warning 文案或 null */
+function scanOffCatalog(cfg, providers) {
+	if (!providers || !Object.keys(providers).length) return null; // 目录空(枚举失败/干净环境无 provider)=不扫
+	const slots = readSlots();
+	const off = new Set();
+	const checkEntry = (entry) => {
+		let s = entry;
+		if (s && typeof s === "object") s = s.model;
+		if (typeof s !== "string" || !s) return;
+		if (slots[s]) s = slots[s]; // 槽位名展开(与 resolveEntry 同语义)
+		const at = s.lastIndexOf("@"); if (at > 0) s = s.slice(0, at); // 剥 effort
+		const i = s.indexOf("/");
+		if (i <= 0) return; // 无 provider 段(槽位名/格式异常)不判表外——解析失败有自己的 fail 路径
+		const prov = s.slice(0, i), model = s.slice(i + 1);
+		if (!(providers[prov] && providers[prov].has(model))) off.add(s);
+	};
+	for (const r of (cfg.refs || [])) checkEntry(r);
+	checkEntry(cfg.aggregator);
+	for (const k of Object.keys(cfg.recipes || {})) { const rc = cfg.recipes[k] || {}; for (const r of (rc.refs || [])) checkEntry(r); checkEntry(rc.aggregator); }
+	if (!off.size) return null;
+	const list = [...off];
+	return "阵容表外 " + list.length + " 处(不在本环境模型目录): " + list.slice(0, 6).join(", ") + (list.length > 6 ? " 等" : "") + " ——多为跨环境迁移的配置(其他 profile/机器的定制阵容), 本环境无法调用; 请在工作台把这些路重选为本环境可用模型(下拉中标「表外」的即待处理项)";
 }
 // 'provider/model[@effort]' → {provider, model, effort?}; 槽位名先经 slots 表展开
 function resolveEntry(entry, slots) {
@@ -1903,6 +1951,13 @@ async function runCacheProbe(llm, opt = {}) {
 
 // ── 插件主体 ──
 function apply(ctx) {
+	/* v4.5.3: profile 感知——dsh 启动的 profile 挂 ctx.profileContext(dir=当前 profile 目录)。
+	 * 有则把配置重指到该 profile 独立文件(桌面 desktop 与生产 web 从此各持各的配置);
+	 * 无该字段(旧版宿主/非 dsh 组合)=回落模块加载时的 web 路径, 行为与 4.5.2 一致。 */
+	if (ctx && ctx.profileContext && typeof ctx.profileContext.dir === "string" && ctx.profileContext.dir) {
+		NATIVE_CONFIG_PATH = join(ctx.profileContext.dir, "moa-native.config.json");
+		console.log("[moa-native] 配置随 profile 解析: " + NATIVE_CONFIG_PATH + " (profile=" + (ctx.profileContext.name || "?") + ")");
+	}
 	const fanoutCache = new Map(); // key → {text, ts}
 	const pendingMoa = new WeakMap(); // Agent → turn(标记该 turn 是 MoA 轮)
 
@@ -2877,11 +2932,12 @@ function apply(ctx) {
 				async list() {
 					const raw = readRaw();
 					const cfg = loadConfig();
+					const offCatalogWarn = scanOffCatalog(cfg, await catalogSnapshot(ctx)); /* v4.5.3: 表外扫描(30s TTL 目录快照), 结果随 effective.warnings 下发 */
 					/* M4.4.1 诊断: raw 原样打印(定位 client 显示 fallback 的丢失层) */
 					if (cfg.debug) { try { console.log("[moa-native] list 诊断: raw=" + JSON.stringify(raw).slice(0, 500)); } catch { /* noop */ } } /* v25.1: 诊断行挂 debug 闸(原每次打开面板打 500 字配置进日志) */
 					/* M4.4.2 fix: rawJson 字符串直通——浏览器端 typert 对嵌套对象结果做字段过滤
 					 * (实测: mode/cadence 标量幸存, refs 数组/aggregator 被滤), JSON 字符串不受对象解码影响; raw 保留兼容 */
-					return { ok: true, rawJson: JSON.stringify(raw), raw, effective: { mode: cfg.mode, recipe: cfg.recipe, recipes: cfg.recipes, refs: cfg.refs, aggregator: cfg.aggregator, disabledModels: cfg.disabledModels, promptLang: cfg.promptLang, injectionDefault: injDefaultOf(cfg), injectionDefaultZh: INJECTION_DEFAULT_TEXT, injectionDefaultEn: INJECTION_DEFAULT_TEXT_EN, aggInjection: cfg.aggInjection || AGG_INJ_DEFAULT_NAME, aggInjections: cfg.aggInjections || {}, aggInjDefault: aggDisciplineDefaultOf(cfg), aggInjDefaultZh: AGG_DISCIPLINE_DEFAULT_TEXT, aggInjDefaultEn: AGG_DISCIPLINE_DEFAULT_TEXT_EN, aggInjForRefsBlank: aggDisciplineForRefsBlankOf(cfg), aggInjForRefsBlankZh: AGG_DISCIPLINE_FORREFSBLANK_TEXT, aggInjForRefsBlankEn: AGG_DISCIPLINE_FORREFSBLANK_TEXT_EN, mechF: (cfg.promptLang === "en") ? MECH_F_EN : MECH_F, mechFZh: MECH_F, mechFEn: MECH_F_EN, mechR: MECH_R, routeTrack: cfg.routeTrack, routeTrackEffective: (routeTrackCached() === "auto" ? "auto(能力检测)" : routeTrackCached()), warnings: cfg.warnings || [] } }; /* v4.4.0: effective 各内置文本随 prompt_lang 解析(单一事实源) + promptLang 下发; 2026-11-04 补: 四件内置文本 zh/en 双变体齐下发(mechFZh/En·injectionDefaultZh/En·aggInjDefaultZh/En·aggInjForRefsBlankZh/En)——面板 🌐 切换即时显示对应语言(不等保存), 单字段(随已存语言)保留向后兼容; 2026-11-05 补: routeTrack 轨道逃生舱可见性(当前配置值 + 实际生效形态) */
+					return { ok: true, rawJson: JSON.stringify(raw), raw, effective: { mode: cfg.mode, recipe: cfg.recipe, recipes: cfg.recipes, refs: cfg.refs, aggregator: cfg.aggregator, disabledModels: cfg.disabledModels, promptLang: cfg.promptLang, injectionDefault: injDefaultOf(cfg), injectionDefaultZh: INJECTION_DEFAULT_TEXT, injectionDefaultEn: INJECTION_DEFAULT_TEXT_EN, aggInjection: cfg.aggInjection || AGG_INJ_DEFAULT_NAME, aggInjections: cfg.aggInjections || {}, aggInjDefault: aggDisciplineDefaultOf(cfg), aggInjDefaultZh: AGG_DISCIPLINE_DEFAULT_TEXT, aggInjDefaultEn: AGG_DISCIPLINE_DEFAULT_TEXT_EN, aggInjForRefsBlank: aggDisciplineForRefsBlankOf(cfg), aggInjForRefsBlankZh: AGG_DISCIPLINE_FORREFSBLANK_TEXT, aggInjForRefsBlankEn: AGG_DISCIPLINE_FORREFSBLANK_TEXT_EN, mechF: (cfg.promptLang === "en") ? MECH_F_EN : MECH_F, mechFZh: MECH_F, mechFEn: MECH_F_EN, mechR: MECH_R, routeTrack: cfg.routeTrack, routeTrackEffective: (routeTrackCached() === "auto" ? "auto(能力检测)" : routeTrackCached()), warnings: offCatalogWarn ? (cfg.warnings || []).concat([offCatalogWarn]) : (cfg.warnings || []) } }; /* v4.5.3: warnings 并入表外扫描结果 */ /* v4.4.0: effective 各内置文本随 prompt_lang 解析(单一事实源) + promptLang 下发; 2026-11-04 补: 四件内置文本 zh/en 双变体齐下发(mechFZh/En·injectionDefaultZh/En·aggInjDefaultZh/En·aggInjForRefsBlankZh/En)——面板 🌐 切换即时显示对应语言(不等保存), 单字段(随已存语言)保留向后兼容; 2026-11-05 补: routeTrack 轨道逃生舱可见性(当前配置值 + 实际生效形态) */
 				},
 				async models() {
 					const out = { providers: {}, slots: {}, runtime_ok: false, effortsBy: {} };

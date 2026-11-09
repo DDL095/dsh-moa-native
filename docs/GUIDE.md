@@ -182,7 +182,7 @@ guidance 拼装(各路意见, 独立尾随 user message 注入——绝不合并
 
 ## 五、配置文件(面板背后,可直接手编)
 
-`~/.dsh/profiles/web/moa-native.config.json`(热读):
+`~/.dsh/profiles/<profile>/moa-native.config.json`(热读; v4.5.3 起随当前 profile 解析——启动时按 `ctx.profileContext.dir` 重指, 缺该字段的旧宿主回落 `profiles/web`; 更早版本硬编码 web, 桌面 desktop profile 的面板保存会写穿生产 web 配置, 2026-11-09 实锤后修):
 
 ```jsonc
 {

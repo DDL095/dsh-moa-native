@@ -58,11 +58,11 @@
 dsh plugin --profile web add dsh-moa-native
 ```
 
-重启实例并刷新浏览器。
+重启实例并刷新浏览器。配置文件位于 `<DSH_HOME>/profiles/<profile>/moa-native.config.json`——**每个 profile 持有独立配置**（v4.5.3 起按 profile 隔离；更早版本固定读 web profile 的文件，桌面 Desktop profile 的面板会写穿生产 web 配置）。
 
 ## 快速开始
 
-1. 设置 → **MoA-Native 控制台**：在默认配置里选 3-4 路 ref（建议各家 flash 档，快且便宜）与 1 路 aggregator（你想常驻的主模型）。**首次安装必须先做这一步**——出厂默认阵容只是示例，须指向你自己已配置的 provider/model；由于 refs 与 agg 被框定为"你自己的预运行草稿"，阵容里可不放与 aggregator 同模型的 ref（省一路成本）。
+1. 设置 → **MoA-Native 控制台**：在默认配置里选 3-4 路 ref（建议各家 flash 档，快且便宜）与 1 路 aggregator（你想常驻的主模型）。**首次安装必须先做这一步**——出厂默认阵容只是示例，须指向你自己已配置的 provider/model；由于 refs 与 agg 被框定为"你自己的预运行草稿"，阵容里可不放与 aggregator 同模型的 ref（省一路成本）。下拉里看到**「模型名（表外）」**标注？= 该条目被当前配置引用但不在本环境模型目录——多为跨 profile/跨机器迁移的阵容，或出厂示例指向你没有的 provider。控制台顶部警告条会一次性汇总全部表外项；把这些路重选为目录内模型即可，警告条自动消失。
 2. 保存（热生效）后，在会话输入框的模型选择器里选 **moa-native** 组的条目——`default` 或你保存的任何配方。
 3. 正常对话。每轮融合自动发生；`/moaR` `/moaF` 临时切换**参考视野**（阵容/agg/节奏沿用当前条目；控制台首屏有「斜杠生效预览」实时显示实际组合）。subagent 会话默认直转 aggregator（零扇出），可在「subagent 门控」改为每 N 次扇一次（3/5/8/10/15/20/30 七档）或同权全扇。
 

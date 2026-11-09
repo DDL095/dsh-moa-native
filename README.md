@@ -65,11 +65,11 @@ Full part-by-part, parameter-by-parameter walkthrough: [architecture.svg](docs/a
 dsh plugin --profile web add dsh-moa-native
 ```
 
-Restart the instance and refresh the browser.
+Restart the instance and refresh the browser. The config file lives at `<DSH_HOME>/profiles/<profile>/moa-native.config.json` — each profile keeps its own lineup (per-profile isolation since v4.5.3; earlier releases always read the `web` profile's file, so a Desktop-profile panel could overwrite your web config).
 
 ## Quick start
 
-1. Settings → **MoA-Native console**: pick 3-4 reference routes (flash tiers work well — fast and cheap) and one aggregator (the model you want to keep). **This step is mandatory on first install** — the factory lineup is only an example and must point at your own configured providers/models. Since references are framed as the aggregator's own pre-run drafts, you can skip a ref that shares the aggregator's model (saves one route).
+1. Settings → **MoA-Native console**: pick 3-4 reference routes (flash tiers work well — fast and cheap) and one aggregator (the model you want to keep). **This step is mandatory on first install** — the factory lineup is only an example and must point at your own configured providers/models. Since references are framed as the aggregator's own pre-run drafts, you can skip a ref that shares the aggregator's model (saves one route). Seeing a model tagged **（表外 / off-catalog）** in a dropdown? That entry is referenced by the current config but absent from this environment's model catalog — typically a lineup migrated from another profile/machine, or the factory example pointing at providers you don't have. The console's top warning banner lists all off-catalog entries at once; re-pick those routes from in-catalog models and the banner clears itself.
 2. Save (hot-reloads), then select a **moa-native** entry in the session model picker — `default` or any recipe you saved.
 3. Chat normally. Fusion happens every turn; `/moaR` `/moaF` temporarily switch the **reference view** (lineup, aggregator, and cadence stay with the current entry; the console shows the live *slash preview*). Subagent sessions stream straight through the aggregator by default (zero fanout) — switch via the *subagent gating* dropdown (7 tiers: 3/5/8/10/15/20/30).
 

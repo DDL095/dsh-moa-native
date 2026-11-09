@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.5.3 (2026-11-09)
+
+The profile-isolation release: each DSH profile now keeps its own moa-native config, and off-catalog lineup references become self-explanatory in the console.
+
+- **Config path is per-profile (the headline fix)**: the config file used to be hardcoded to `<DSH_HOME>/profiles/web/moa-native.config.json` no matter which profile the plugin ran in. On a multi-profile machine (e.g. the Desktop app's `desktop` profile alongside a production `web` profile) this meant the Desktop console silently **read the web profile's lineup** and every save from the Desktop panel **overwrote the production config** — observed in the wild (recipes appearing in production config after a Desktop session; mtime-confirmed). The path now resolves from `ctx.profileContext.dir` (present on every dsh-launched profile; falls back to the legacy `web` path when absent, so old hosts and sandboxed verify replays keep their exact 4.5.2 behaviour). Activation logs the resolved path once.
+- **Off-catalog scan banner (initial-guidance hardening)**: a lineup entry referencing a provider/model absent from the current environment's model catalog (a config migrated from another profile/machine, or the factory example pointing at providers you don't have) used to surface only as a bare `model（表外）` tag in the dropdowns. The console's top warning banner now lists every off-catalog entry across the direct config and all recipes at once — what it is, why, and what to do (re-pick in-catalog models; the banner clears itself). The catalog snapshot is cached 30 s; enumeration failure fails open (no banner, panel unaffected).
+- **Dropdown `（表外）` options get a hover title** explaining the tag in place.
+- **README (en/zh)**: Install section documents the per-profile config location; Quick start step 1 explains the off-catalog tag and the banner.
+- Housekeeping: dead constant `MOA_CONFIG_PATH` removed (its layer was already cut in §七).
+
 ## 4.5.2 (2026-11-07)
 
 The per-model budget release: the trimmed view's overall window now adapts to each reference model's own context window — Hermes' `_trim_messages_for_reference` semantics, ported.

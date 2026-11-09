@@ -192,7 +192,7 @@ window.__ModuleLoader__.load({
 					React.createElement("select", { value: model, onChange: (e) => setM(e.target.value), style: Object.assign({}, inputStyle, { flex: "1 1 120px" }) },
 						React.createElement("option", { value: "" }, "model…"),
 						isLegacy && bare0 ? React.createElement("option", { value: model }, model + "（槽位名）") : null,
-						!isLegacy && model && !modelList.includes(model) ? React.createElement("option", { value: model }, model + "（表外）") : null,
+						!isLegacy && model && !modelList.includes(model) ? React.createElement("option", { value: model, title: "表外=当前配置引用的模型不在本环境目录(多为跨 profile/跨机器迁移的配置), 本环境无法调用——请重选列表内模型; 顶部配置警告条会汇总全部表外项" }, model + "（表外）") : null,
 						modelList.map((m) => React.createElement("option", { key: m, value: m }, m + (edit.disabled_models.includes(prov + "/" + m) ? "（禁用）" : ""))),
 					),
 					React.createElement(EffortSelect, { mid: isLegacy ? "" : bare0, val: eff, onCh: (ne) => onCh(bare0 + (ne ? "@" + ne : "")) }),
