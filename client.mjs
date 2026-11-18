@@ -535,9 +535,9 @@ window.__ModuleLoader__.load({
 					return React.createElement("div", { style: { border: "1px solid rgba(127,127,127,0.35)", borderRadius: "6px", padding: "6px 10px", margin: "10px 0 4px", fontSize: "12px" } },
 						React.createElement("div", { style: { fontWeight: 600, marginBottom: "4px" } },
 							"🛡 守卫健康 · 近 2 天 " + gh.total + " 事件 · 宿主观测(模型不可见·单向流出)"),
-						React.createElement("div", { style: { opacity: 0.7, marginBottom: "4px" } }, "✗失败 ⊘守卫剔除 ⚡中止 ⏱超时 ⚠警告(thinking 超长) · 账本 ~/.dsh/moa-native-health"),
+						React.createElement("div", { style: { opacity: 0.7, marginBottom: "4px" } }, "✗失败 ⊘守卫剔除 ⚡中止 ⏱超时 ⚠警告(thinking 超长) ⛔标记(检出退化·已中止并留痕) · 账本 ~/.dsh/moa-native-health"),
 						React.createElement("table", { style: { borderCollapse: "collapse", width: "100%" } },
-							React.createElement("thead", null, React.createElement("tr", null, head("模型"), head("✗"), head("⊘"), head("⚡"), head("⏱"), head("⚠"))),
+							React.createElement("thead", null, React.createElement("tr", null, head("模型"), head("✗"), head("⊘"), head("⚡"), head("⏱"), head("⚠"), head("⛔"))),
 							React.createElement("tbody", null,
 								rows.map(([k, v]) => React.createElement("tr", { key: "gh" + k },
 									React.createElement("td", { style: Object.assign({}, td, { fontFamily: "monospace" }) }, k.split("/").pop()),
@@ -545,12 +545,13 @@ window.__ModuleLoader__.load({
 									React.createElement("td", { style: Object.assign({}, td, sev(v.dropped)) }, "⊘" + v.dropped),
 									React.createElement("td", { style: Object.assign({}, td, sev(v.abort)) }, "⚡" + v.abort),
 									React.createElement("td", { style: Object.assign({}, td, sev(v.timeout || 0)) }, "⏱" + (v.timeout || 0)),
-									React.createElement("td", { style: Object.assign({}, td, sev(v.warn)) }, "⚠" + v.warn))),
+									React.createElement("td", { style: Object.assign({}, td, sev(v.warn)) }, "⚠" + v.warn),
+									React.createElement("td", { style: Object.assign({}, td, sev(v.marked || 0)) }, "⛔" + (v.marked || 0)))),
 								Object.keys(gh.byModel).length > 8 ? React.createElement("tr", { key: "ghmore" }, React.createElement("td", { style: Object.assign({}, td, { opacity: 0.6 }) }, "… 其余 " + (Object.keys(gh.byModel).length - 8) + " 个模型")) : null)),
 						laneRows.length ? React.createElement("div", { style: { marginTop: "8px" } },
 							React.createElement("div", { style: { opacity: 0.85, marginBottom: "2px" } }, "泳道(定调/巡检各自分离画像)"),
 							React.createElement("table", { style: { borderCollapse: "collapse" } },
-								React.createElement("thead", null, React.createElement("tr", null, head("泳道"), head("事件"), head("✗"), head("⊘"), head("⚡"), head("⏱"), head("⚠"))),
+								React.createElement("thead", null, React.createElement("tr", null, head("泳道"), head("事件"), head("✗"), head("⊘"), head("⚡"), head("⏱"), head("⚠"), head("⛔"))),
 								React.createElement("tbody", null, laneRows.map(([k, v]) => React.createElement("tr", { key: "gl" + k },
 									React.createElement("td", { style: td }, k === "steering" ? "●定调" : k === "patrol" ? "○巡检" : k),
 									React.createElement("td", { style: Object.assign({}, td, { opacity: 0.8 }) }, v.total),
@@ -559,7 +560,7 @@ window.__ModuleLoader__.load({
 									React.createElement("td", { style: Object.assign({}, td, sev(v.abort)) }, "⚡" + v.abort),
 									React.createElement("td", { style: Object.assign({}, td, sev(v.timeout || 0)) }, "⏱" + (v.timeout || 0)),
 									React.createElement("td", { style: Object.assign({}, td, sev(v.warn)) }, "⚠" + v.warn)))))) : null,
-						React.createElement("div", { style: { opacity: 0.6, marginTop: "4px" } }, "守卫检出退化即剔除该路(不重发不降档); 计数只到面板, 不回写注入文本。"));
+						React.createElement("div", { style: { opacity: 0.6, marginTop: "4px" } }, "守卫检出退化即剔除该路(不重发不降档); 全局守卫覆盖所有模型流(主会话/subagent/MoA), 检出即中止并标记; 计数只到面板, 不回写注入文本。"));
 				})(),
 			);
 		}

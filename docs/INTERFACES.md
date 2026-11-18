@@ -91,6 +91,21 @@ v4.4.0 超时终态(v4.4.0 用户裁定「不要让慢模型被抛弃」):refs �
 
 **升级 SOP**:升级 DSH → 重启 → 跑本表 1/4/5/6 四项快检(2 分钟)→ 全绿即恢复;任一红 → 对照"失败症状"列修 host.mjs/client.mjs → commit → sync → 重启复检。探针(moa_cache_probe)是第 10 项的常驻体检工具。
 
+## DSH 版本兼容矩阵与版本闸(engines.dsh)
+
+**声明**: `package.json` `engines.dsh = ">=0.2.1-rc.3 <0.3.0-0"`(本改动, 随下次发布随包)。宿主闸 = dsh-app-boot `evaluatePluginCompatibility`(boot preflight 与 plugin_manager 安装/激活同一段代码执法): engines.dsh **单独决策**(忽略 peers)、`semver.satisfies(runtime, range, {includePrerelease:true})`、runtime 版本取自 **dsh-app-boot 包版本**; unmet 且无 exact 豁免 ⇒ 安装抛错 / boot 禁用该行(stderr `disabling profile plugin row …`, fail-loud 不静默)。豁免逃生舱 = `dsh plugin allow-version` / plugin_manager `set_version_exemption`(键=name@version × **精确** runtime, 须用户明确同意, 入审计)。
+
+**上界陷阱**: semver 排序 `0.3.0-rc.1 < 0.3.0` ⇒ 朴素 `<0.3.0` 会放行 0.3.0 的 prerelease; 封死 0.3.x 线必须 `<0.3.0-0`(dtg 探针 A6b 实证)。空串/`workspace:*` 的 engines.dsh ⇒ unmet。
+
+| 插件版本 | engines.dsh | 运行时实测 DSH 版本 | 说明 |
+|---|---|---|---|
+| 已发布 ≤4.5.3 | 无(无闸) | 0.2.1-rc.3/rc.4/rc.5(rewrite 轨)、0.2.2-alpha.2/alpha.3/rc.1(selection 轨)——六版实测(host.mjs 双轨注释) | 跨版本适配靠能力检测, 非版本号 |
+| 下次发布(dev 4.6.3+, 本改动待发) | `>=0.2.1-rc.3 <0.3.0-0` | 0.2.2-rc.1(沙箱 3081 boot 实测加载) | 闸语义探针 19/0(dtg `scripts/probe-engines-compat.mjs` 覆盖两包) |
+
+**运行时适配与版本闸的分工**: 闸只管「拦住未实测的宿主线」(fail-loud forcing function); 真正的跨版本兼容由**双轨路由能力检测**承担——`agentHasSelect()` = `typeof agent.model?.select === "function"`, **绝不认版本号**(契约切换点在 0.2.2-alpha.2 而非 rc.1, 按版本号判轨必错)——加**逃生舱 `route_track`**(auto/selection/rewrite, 独立热读; 未来宿主改契约可零改码切轨, 不必等发版)。0.2.x 线内升级闸放行, 仍须跑上方升级 SOP 四项快检; 跨入 0.3.x 闸拦 ⇒ 复核契约表后发新版扩上界(或应急 exact 豁免)。
+
+⚠ 两轴勿混: 「运行时实测」= 真在该宿主 boot 跑过; 探针矩阵 = 闸函数级语义验证(模拟未来版本), 不是运行时兼容测试。改 range 必跑 `node <dsh-plugins>/depth-tool-gate/scripts/probe-engines-compat.mjs` + 沙箱负对照(必拒 range 的 scratch 插件应被 boot 禁用)。
+
 ## v13/v14 新增(2026-10-25)
 
 ### GET /moa-native/trace.json?limit=N&ws=<wsDir>

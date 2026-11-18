@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.6.3 (2026-11-18)
+
+The degeneration-guard release: a global model-degeneration guard now wraps every model stream in the process, and this release closes the short-output blind spot. Accumulates the 4.6.0–4.6.2 development iterations (not published separately).
+
+- **Global degeneration guard (v4.6)**: the `llm/stream` interceptor is wrapped at the inner layer, covering **every model flow in the process** — main session, subagents, MoA reference/aggregator routes, and other plugins' model calls (per-plugin audit: all in-repo `llm.stream` call sites share the same source, so coverage is automatic). Degenerate output is detected, the stream is **aborted and marked** (ledger entry + visible notices) instead of silently billing thousands of repeated lines. Motivating incident (2026-11-13, production): a 75,579-character aggregator output with only 13 distinct lines after dedup (character 12-gram ratio 0.0918, far below the 0.3 threshold) was short-circuited by the old "structural exemption" pre-check — zero ledger records, no abort, no mark. The exemption is demoted so the repetition criteria always run.
+- **Short-line criteria correction (v4.6.1)**: residual lines in the tail window no longer count toward the variant set (false-positive fix). Ships a sandbox end-to-end probe pack and a production canary script checking all three visible surfaces at once, with a FAIL counter-proof against pre-guard production code.
+- **Attribution + direct answers (v4.6.2)**: guard ledger entries carry an attribution clue (summary of the last user message), and a "which sessions degenerated" tool answers directly via history-line rescan + ledger-line attribution.
+- **Stream terminal-state mandatory check (v4.6.3, the headline fix)**: both the global guard and the aggregator guard now also check the **final state of the stream**, closing the blind spot where degenerate output **shorter than 4,096 characters** ends before the windowed criteria ever fire. Regression-script false negatives fixed; sandbox probes reworked into three cases (short degeneration / normal / long degeneration).
+- **Ali Token Plan channel migrated to OpenAI-compatible routing** (2026-11-14): all routes of the channel moved to the OpenAI-compatible surface.
+- **Version gate upper bound + compatibility matrix**: the release manifest's `engines.dsh` tightens from `>=0.2.1-rc.3` to `">=0.2.1-rc.3 <0.3.0-0"` — DSH upgrades within the 0.2.x line pass; crossing into 0.3.x is blocked fail-loud at install/boot until the plugin is re-verified and re-released (exact-version exemption escape hatch documented). The `-0` upper-bound spelling is required: semver sorts `0.3.0-rc.1 < 0.3.0`, so a naive `<0.3.0` would admit 0.3.0 prereleases. `docs/INTERFACES.md` gains a compatibility-matrix section: runtime cross-version adaptation stays with the dual-track capability detection (`agentHasSelect`, never version numbers) + the `route_track` escape hatch; the gate only blocks untested host lines.
+- Regression: `verify-v46-global-guard.mjs` (incident-sample replay + source assertions); pinned-version assertions bumped with this release (v28 / v4312 / v453-profile).
+
 ## 4.5.3 (2026-11-09)
 
 The profile-isolation release: each DSH profile now keeps its own moa-native config, and off-catalog lineup references become self-explanatory in the console.
