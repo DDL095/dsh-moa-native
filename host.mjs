@@ -2668,13 +2668,32 @@ function apply(ctx) {
 	try {
 		/* cordis ctx.inject 签名: cb 参数是 ctx, 服务经 c.get 取(skill-scout-v2 同款,
 		 * 首版把参数当服务直接 .register → 'cannot get property register without inject') */
-		ctx.inject(["webServer"], (c) => {
+		ctx.inject(["webServer", "connection"], (c) => {
 			const webServer = c.get("webServer");
 			if (!webServer || typeof webServer.register !== "function") return;
+			/* v4.6.4 安全修复(awesome #16562 审计): webServer.register 的 HTTP 路由不走 DSH 访问检查,
+			 * 浏览器里任意网页都能请求这些端点(读端点可被 DNS rebinding 读走 trace/配置/成本;
+			 * eval.json POST 以 text/plain simple request 不触发 CORS 预检即可启动 eval 真实计费)。
+			 * 修复 = 官方 inspector 同款 requestRejection: Host/Origin 栅栏 + 已认证 live Peer
+			 * (GUI 同源 fetch 自带认证 cookie, 面板不受影响)。
+			 * ⚠ cordis 陷阱(沙箱实测): ctx.inject 回调作为插件体运行, 注入服务只挂在回调参数 c
+			 * (新 fiber ctx)上, 外层闭包 ctx.connection === undefined → handler 抛 TypeError →
+			 * webServer 兜底 400 空 body; 故经 c.get("connection") 取, 勿写 ctx.connection。 */
+			const conn = c.get("connection");
+			const connGuard = (req, res) => {
+				const refused = conn.requestRejection(req);
+				if (refused !== undefined) {
+					res.writeHead(refused, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+					res.end(JSON.stringify({ ok: false, error: refused === 401 ? "unauthorized" : "forbidden" }));
+					return true;
+				}
+				return false;
+			};
 			ctx.effect(() => webServer.register({
 				kind: "exact",
 				path: "/moa-native/panel.json",
-				handler: async (_req, res) => {
+				handler: async (req, res) => {
+					if (connGuard(req, res)) return;
 					let body;
 					try {
 						const svc = ctx.get("nativeCfg");
@@ -2689,6 +2708,7 @@ function apply(ctx) {
 				kind: "exact",
 				path: "/moa-native/efforts.json",
 				handler: async (req, res) => {
+					if (connGuard(req, res)) return;
 					const u = new URL(req.url, "http://x");
 					const provider = u.searchParams.get("provider") || "", model = u.searchParams.get("model") || "";
 					let body;
@@ -2704,6 +2724,7 @@ function apply(ctx) {
 				kind: "exact",
 				path: "/moa-native/trace-archive.json",
 				handler: async (req, res) => {
+					if (connGuard(req, res)) return;
 					const u = new URL(req.url, "http://x");
 					const date = (u.searchParams.get("date") || "").replace(/[^0-9]/g, "").slice(0, 8);
 					let body;
@@ -2723,6 +2744,7 @@ function apply(ctx) {
 			kind: "exact",
 			path: "/moa-native/trace.json",
 			handler: async (req, res) => {
+				if (connGuard(req, res)) return;
 				const u = new URL(req.url, "http://x");
 				const limit = Math.min(Math.max(parseInt(u.searchParams.get("limit") || "60", 10) || 60, 1), TRACE_MAX);
 				const ws = (u.searchParams.get("ws") || "").trim(); /* 工作区隔离闸: 非空=只返回该 ws 的轮次 */
@@ -2800,6 +2822,7 @@ function apply(ctx) {
 				path: "/moa-native/live.json",
 				/* §十三 v17: dock 数据源——当前会话最新 trace entry 的精简实时视图(零新增埋点, ring 逐事件更新) */
 				handler: async (req, res) => {
+					if (connGuard(req, res)) return;
 					const u = new URL(req.url, "http://x");
 					const sid = u.searchParams.get("sid") || "";
 					let found = null;
@@ -3025,6 +3048,7 @@ function apply(ctx) {
 				path: "/moa-native/eval.json",
 				handler: async (req, res) => {
 					const send = (obj) => { res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(obj)); };
+					if (connGuard(req, res)) return;
 					try {
 						if (req.method === "POST") {
 							const body = JSON.parse((await readBody(req)) || "{}");

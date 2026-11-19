@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.6.4 (2026-11-19)
+
+The access-control release: every HTTP route registered via `webServer.register` now passes the DSH access check before dispatch. Found in the awesome-dsh-plugin catalog review (#16562, thanks @fkysly); v4.6.3 and earlier shipped the endpoints without the check and the catalog entry carried a security note — this release removes the need for that note.
+
+- **All six HTTP endpoints now reject untrusted requests** (`panel.json` / `efforts.json` / `trace-archive.json` / `trace.json` / `live.json` / `eval.json`): each handler starts with the official-inspector-style `ctx.connection.requestRejection(req)` gate — Host/Origin fence (blocks DNS rebinding and cross-site `Sec-Fetch-Site` requests) plus authenticated-live-Peer requirement (blocks credential-less callers). The plugin injects `["webServer", "connection"]` accordingly.
+- **Why it mattered**: without the gate, any web page open in the user's browser could reach these routes. Read endpoints leak config/lineup/trace/cost data via DNS rebinding; worse, `POST /moa-native/eval.json` accepted `Content-Type: text/plain` bodies (a CORS-simple request that skips preflight), so a malicious page could silently start paid eval runs (the max-2 concurrent guard throttles but does not stop queued abuse).
+- **No behavior change for the console**: the client fetches all endpoints with same-origin relative URLs, which carry the GUI's own auth cookie and pass the gate unchanged. Localhost CLI callers without credentials now get `401`/`403` JSON instead of data.
+- Rejection responses are uniform JSON (`{"ok":false,"error":"unauthorized"|"forbidden"}`, status 401/403).
+
 ## 4.6.3 (2026-11-18)
 
 The degeneration-guard release: a global model-degeneration guard now wraps every model stream in the process, and this release closes the short-output blind spot. Accumulates the 4.6.0–4.6.2 development iterations (not published separately).
